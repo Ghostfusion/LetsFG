@@ -19,32 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-COMMERCIAL USE ADDENDUM
-
-The MIT License above grants full rights for personal and commercial use of
-the Software. However, if you integrate LetsFG's booking functionality into
-a product or service offered to third parties, we ask that you contact us to
-establish a commercial relationship:
-
-Commercial terms (optional, for booking integration):
-- Search is free. No fees for flight search, regardless of volume.
-- Booking fee: 1% of booking value (minimum $1 USD per booking).
-- Payment is processed through Stripe Connect.
-
-Contact:
-- Email: contact@letsfg.co
-- Founder: adam@letsfg.co
-- GitHub: https://github.com/LetsFG/LetsFG/issues
-
-
-HOW THE SOFTWARE WORKS
-
-The connectors interact with airline websites through your AI agent, on your
-behalf, when you choose to run them. Each connector automates the process of
-searching a specific airline's public-facing website or API — the same way a
-human would search for flights in a browser. The Software does not access any
-private, restricted, or authenticated airline systems beyond what is publicly
-available to any user.
