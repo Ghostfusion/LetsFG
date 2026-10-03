@@ -121,8 +121,9 @@ is a finding, not a failure.
 
 **Change:** determine what Google does to a client that sustains the allowed rate.
 **ACCEPT:** a recorded answer, *or* an explicit decision not to find out. This is the
-probe that could get an IP throttled, so it needs its own go-ahead — exactly like the
-SerpApi 429 experiment.
+probe that could get an IP throttled, so it needs its own go-ahead — and there is no
+precedent to lean on, since the comparable SerpApi 429 experiment was cancelled with that
+lane on 2026-10-03.
 
 ---
 
@@ -185,14 +186,17 @@ into a checklist.
 
 ### P2.2 Capability declaration and coverage provenance `CODE`
 
-**Files:** the provider contract module beside the SerpApi adapter; the provider registry.
+**Files:** the provider contract module (there is no existing adapter to sit beside — the
+SerpApi lane was declined before any code, so this would be the first provider
+implementation); the provider registry.
 
 **Change:** implement `provider_capabilities` (design §6.3), the
 `coverage_mode` × `result_state` pair with its legal combinations (design §6.2), the
 failure routing of design §6.5, and per-request instances (its client is not
 thread-safe).
 
-**ACCEPT:** the shared provider conformance suite (SerpApi plan P2.5) passes; a
+**ACCEPT:** the provider conformance suite — built against the **existing first-party
+lanes**, since the SerpApi plan's suite was never written — passes; a
 test proves the illegal combinations are unrepresentable; a child/infant party yields
 `partial`; and the adapter **cannot be selected as primary**.
 
@@ -200,7 +204,8 @@ test proves the illegal combinations are unrepresentable; a child/infant party y
 
 **Change:** the health state machine (`HEALTHY → DEGRADED → UNTRUSTED → DISABLED`), the
 quarantine triggers, and the fallback routing — **on the owner's answer to D11**, since
-whether a fli failure automatically falls back to SerpApi/PFS is a product decision with
+whether a fli failure automatically falls back to PFS (the only fallback that exists, the
+rented lane having been declined) is a product decision with
 cost consequences, not an implementation detail.
 
 **ACCEPT:** with the provider forced to `DISABLED`, a scanner run completes without
@@ -233,7 +238,8 @@ the **name collision is handled explicitly** — the PyPI distribution is `fligh
 
 Scanner wiring (planner → provider selection → observation store → verification →
 alerting) belongs to the scanner repository. This repo's obligation ends at the provider
-contract, as with the SerpApi plan.
+contract — the same boundary the SerpApi plan drew for its P3 before that lane was
+declined.
 
 ---
 
@@ -257,10 +263,10 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
 | F1 | **Run the P0 acceptance protocol** against Google under our IP — including whether to risk the sustained-load probe (§2.7) | All of P0 | §2 here, design §10 |
-| F2 | **Is *owned* acquisition acceptable at all** — unhedged, versus SerpApi's Legal Shield from $150/mo? **A business/legal/ownership decision, not a technical one**, and it must be answered **before any request is made to Google**. YES authorizes F1/P0; **NO forbids the probe entirely** — because running it *is* the acquisition being decided | F1, D6, all of P2 | design §6.6, §9, §11 |
+| F2 | **Is *owned* acquisition acceptable at all?** **A business/legal/ownership decision, not a technical one**, and it must be answered **before any request is made to Google**. It is now unhedged in the strongest sense: the rented alternative, SerpApi, was **declined by the owner on 2026-10-03** (its design §16 D1), so there is no vendor to buy the legal posture from at any price. YES authorizes F1/P0; **NO forbids the probe entirely** — because running it *is* the acquisition being decided | F1, D6, all of P2 | design §6.6, §9, §11 |
 | F3 | **The dependency boundary** — depend / vendor a subset / reimplement (D7 A/B/C) | P2.5 | design D7 |
 | F4 | ~~Whether to adopt the patterns now~~ — **answered 2026-10-03: yes** | — | design D1/D5 |
-| F5 | **Provider health and fallback** (D11): does fli failure automatically permit fallback to SerpApi/PFS, and which classes quarantine versus retry per search? | P2.3 | design §6.5, D11 |
+| F5 | **Provider health and fallback** (D11): does fli failure automatically permit fallback to PFS, and which classes quarantine versus retry per search? | P2.3 | design §6.5, D11 |
 | F6 | **May partial-coverage observations generate alerts** (D12)? Recommendation: no, unless the alert discloses partial coverage | P2.4 | design §6.2, D12 |
 
 ---

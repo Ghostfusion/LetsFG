@@ -171,7 +171,9 @@ exists to prevent — it would make a stale fare look freshly observed, and the
 scanner's whole purpose is to act on prices at the right moment. Symmetrically,
 `provider_fetch` must never be *reported* as `provider`: a "no cache" fetch is not
 a provider observation timestamp. (Third value added 2026-10-03 from provider
-evidence — see [`serpapi-provider-design.md`](serpapi-provider-design.md) §7.)
+evidence — see [`serpapi-provider-design.md`](serpapi-provider-design.md) §7. That
+lane has since been declined, and the value outlives it: the rule is about *any*
+upstream that exposes no observation time of its own.)
 
 **Why `freshness` (review).** A retained observation is dangerous without it: `current_price = 6200` means nothing unless you also know *when* it was seen and whether it was verified. A scanner that keeps observations must never present a stale price as current, so the two fields are part of the contract from the start rather than a later retrofit. `unknown` is the honest default for anything the client did not fetch itself.
 

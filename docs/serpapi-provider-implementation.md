@@ -1,9 +1,11 @@
 # SerpApi Google Flights — Implementation Plan
 
-**Status:** plan only. **Nothing in this document has been implemented.** Every
-item below is `NOT STARTED`, and every code item is gated on an owner decision —
-the working agreement forbids code changes that are not defect fixes, and adding a
-provider is new scope.
+**Status: CANCELLED — owner decision, 2026-10-03: LetsFG will not use SerpApi**
+(design §16 D1 resolved **no**). Nothing in this document was implemented and nothing
+will be: P0's remaining probes are cancelled, P1 and P2 are withdrawn, and P3 was
+already another repository's scope. The plan is retained as the record of what the lane
+would have cost and where its risks sat; the probe evidence it did produce is not
+wasted, because several of the contracts it froze apply to any provider.
 
 Companion: [`serpapi-provider-design.md`](serpapi-provider-design.md). Section
 references in `§` point there.
@@ -46,9 +48,11 @@ behaviour (P0.2),
 `search_metadata` (P0.4), pin semantics (P0.3), price-context shape (P0.6),
 coverage delta and the duration re-check (P0.8), and a controlled billing sequence
 (P0.7, partially). Results and the filled capability profile are in design §17.
-**Still open: P0.5 (429 bodies, `Retry-After`) and the billability of an
-empty-but-successful search (P0.7)** — both need deliberately quota-consuming
-requests and therefore an explicit go-ahead.
+**Still open at the time of the decision: P0.5 (429 bodies, `Retry-After`) and the
+billability of an empty-but-successful search (P0.7)** — both need deliberately
+quota-consuming requests. **Neither will now run**: the lane was declined on
+2026-10-03 (design §16 D1 resolved **no**), so the capability profile keeps those
+`null`s permanently.
 
 ### P0.1 A `live`-marked probe script and its capability profile `PROBE` `OWNER`
 
@@ -317,10 +321,13 @@ This repo's obligation ends at the provider contract.
 (`google_checkout_live_sweep_results.json`, `_results_v2.json`,
 `_japan_longhaul.json`, `_longhaul_london_us.json`, ≈51 KB total).
 
-**Status:** raised to the owner on 2026-10-03; no decision taken. Recorded as a
-deferral, not silently fixed — deleting them is destructive and they are not mine to
-remove. If the answer is "delete", it is a one-commit defect fix; if it is "keep",
-the script should at least stop looking runnable (a header note).
+**Status:** raised to the owner on 2026-10-03. The vendor decision of the same date
+(design §16 D1: **not adopted**) removes all doubt about *whether* these files are dead
+— nothing will ever run them and their connector is deleted — but not about *deleting*
+them, which is destructive and needs an explicit yes. If the answer is "delete", it is a
+one-commit defect fix; if it is "keep", the script must at least stop looking runnable
+(a header note is the minimum) and the artifacts should be marked historical rather than
+current.
 
 ### D-2 No automated proof that the sweep artifacts are stale `DEFECT` `DEFERRED`
 
@@ -333,11 +340,11 @@ so they will silently rot if kept. Deferred with D-1 — it is the same decision
 
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
-| O1 | **Is SerpApi a provider lane we own?** (provider acquisition is owner-reserved) | All of P2 | §16 D1 |
-| O2 | ~~**Provide a key for the probe**~~ — **answered 2026-10-03**: a valid SerpApi key exists in this machine's `.env`, misfiled as `SERPER_API_KEY` (design §14). Recommend renaming it to `SERPAPI_KEY`. Remaining sub-decision: approval for the deliberately quota-consuming probes (P0.5, P0.7) | only P0.5/P0.7 | §17 |
-| O3 | ~~**Which plan tier**~~ — **answered 2026-10-03**: the account is on the **Free plan** (250/mo, ≈8/day), with `account_rate_limit_per_hour` 250. Confirms design D12's conclusion: fine for development and shadow collection, Starter needed for continuous operation | D12 stays owner-cost | §16 D12 |
-| O4 | **Legal Shield**: the scraping indemnity starts at $150/mo and ZeroTrace (no retention) is enterprise-only — accept, or route only non-personal queries through this lane | Procurement | §4.3, §14 |
-| O5 | **Fate of the dead sweep script and its four JSON artifacts** | D-1 | §6 above |
+| O1 | ~~**Is SerpApi a provider lane we own?**~~ — **answered 2026-10-03: NO.** LetsFG will not use SerpApi; the lane is *declined*, not deferred. All of P2 is withdrawn with it | ~~All of P2~~ — closed | §16 D1 |
+| O2 | ~~**Provide a key for the probe**~~ — **moot**: no probe will run. The measured misfiling (a SerpApi key sitting under `SERPER_API_KEY` in this machine's `.env`) stays recorded in design §14 as a credential-hygiene note with no consumer | ~~P0.5/P0.7~~ — cancelled | §17 |
+| O3 | ~~**Which plan tier**~~ — **moot**: no tier is purchased | ~~D12~~ — closed | §16 D12 |
+| O4 | ~~**Legal Shield**~~ — **moot**: the indemnity existed to hedge *this* lane's scraping exposure, and the lane is declined. It is no longer an available hedge for any decision — see F2 in the fli plan | ~~Procurement~~ — closed | §4.3 |
+| O5 | **Fate of the dead sweep script and its four JSON artifacts** — now unambiguous rather than open-ended: nothing will ever run `google_checkout_live_sweep.py` (its connector `serpapi_google` is deleted), and the vendor is declined. **Kept as an owner call only because deletion is destructive**, not because the answer is in doubt | D-1 | §6 above |
 
 ---
 
@@ -374,22 +381,23 @@ so they will silently rot if kept. Deferred with D-1 — it is the same decision
 | Item | Status | Evidence |
 |---|---|---|
 | Design + implementation documents (incl. review #1 revision) | **Done** | This document and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
-| P0 probe | **Partly done 2026-10-03** — P0.2, P0.3, P0.4, P0.6, P0.8 and a partial P0.7 measured (7 searches, Free plan, usage 1 → 8); P0.5 and the empty-search half of P0.7 still open | Design §17 capability profile; no fixtures committed yet (that is a repo change awaiting the owner's nod) |
-| P1.1–P1.8 contract freeze + guards | **Not started** | Gated by rule 4 (new files) |
-| P2.1–P2.5 adapter | **Not started** | Gated by O1 |
+| P0 probe | **Partly done, then cancelled 2026-10-03** — P0.2, P0.3, P0.4, P0.6, P0.8 and a partial P0.7 were measured (7 searches, Free plan, usage 1 → 8). P0.5 and the empty-search half of P0.7 will never run: the lane was declined before its failure contract was established | Design §17 capability profile; no fixtures committed, and none will be |
+| P1.1–P1.8 contract freeze + guards | **Withdrawn with the lane** | The lane-independent rules live on in the fli study and the scanner design; no code is owed here |
+| P2.1–P2.5 adapter | **Withdrawn with the lane** | O1 answered **no** |
 | P3 scanner wiring | **Out of scope** | Other repository |
-| D-1, D-2 sweep leftovers | **Deferred** | Raised 2026-10-03; awaiting O5 |
+| D-1, D-2 sweep leftovers | **Deferred; O5 is now the only live item** | Raised 2026-10-03; the vendor decision has since removed any doubt about the answer |
 
 ---
 
 ## 10. Order of work
 
-1. **O1, O2, O3, O4** — owner decisions. Nothing else moves without them.
-2. **P0** — probe; the two decisive experiments (P0.2 cache, P0.3 semantic
-   equivalence) first, then the rest; emit the capability profile.
-3. **P1** — freeze the contracts the evidence supports, with the guards that hold
-   them. This is the last cheap step before any adapter code exists.
-4. **P2** — the adapter, starting with the conformance suite against the *existing*
-   lanes so the newcomer has to fit rather than the other way round.
-5. **D-1/O5** — settle the leftovers whenever the owner answers; independent of
-   everything above.
+**Withdrawn.** The lane was declined before P1 or P2 began, and P0 stopped where it
+stopped. The only item still open is **O5** — deleting the dead sweep script and its four
+artifacts — which is independent of everything above and needs only a yes, because
+deletion is destructive.
+
+For the record, the order that *would* have applied is preserved in this plan's history:
+contract freeze before adapter, adapter before wiring, with the conformance suite written
+against the existing first-party lanes so the newcomer had to fit rather than the other
+way round. That sequencing is the reusable part, and it is inherited by the fli plan
+(P2.2).

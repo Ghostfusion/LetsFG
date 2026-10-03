@@ -575,9 +575,9 @@ provider health breaker   "is this source trustworthy?"   counts contract-level 
 **Unattempted work is never charged as failed work.** The budget accounting counts
 units we actually sent; a breaker that abandons a sweep records the rest as
 `unattempted` — never `failed`, never billable. This keeps §6.3's distinction intact
-at the accounting layer, and it is the same discipline as
-[`serpapi-provider-design.md`](serpapi-provider-design.md) §10, where a failure is
-explicitly not a billable search.
+at the accounting layer. (The rule first appeared in the SerpApi lane's ledger design
+§10 — a lane since declined — which is exactly why it is restated here as a scanner
+invariant rather than left as a citation to a document we do not act on.)
 
 ## 7. Deal engine
 
@@ -622,9 +622,12 @@ Mixing them would make the baseline *"historical advertised price"* rather than
 deals, since discover prices are cheaper by construction and not bookable.
 
 **Provider price context is not a baseline.** An external provider may supply its
-own price context — through a SerpApi-style adapter, Google Flights returns
-`typical_price_range`, `price_level` and a price history per search
-([`serpapi-provider-design.md`](serpapi-provider-design.md) §9). That is a
+own price context — Google Flights returns `typical_price_range`, `price_level` and a
+price history per search, as measured by the SerpApi lane before it was declined
+([`serpapi-provider-design.md`](serpapi-provider-design.md) §9). **No provider in the
+portfolio does today**, so the baseline is built from our own observations alone; the
+rule below is what stops a future contributor from becoming one by accident. That
+context is a
 **`ProviderPriceContext`**: it carries the *provider's* cohort and window, which
 are not ours and are unmeasured. It is stored as a provider claim with provenance,
 kept **separable** in the evaluation record — so a replay can be scored against our

@@ -1,16 +1,29 @@
 # SerpApi Google Flights — Provider Design
 
-**Status:** design only. No code from this document exists yet, and none may be
-written until the owner answers the two gating decisions in §16 (D1 ownership,
-D10 probe-first) — the working agreement forbids code changes that are not defect
-fixes, and this is new scope.
+**Status: NOT ADOPTED — owner decision, 2026-10-03.** LetsFG will not use SerpApi. No
+code from this document exists, none will be written, and the probes still open at the
+time of the decision (P0.5's 429 bodies, and the empty-search half of P0.7) are
+**cancelled** rather than deferred. The document is retained deliberately, for three
+reasons: it is the evidence behind the decision; several of its contracts are
+lane-independent and outlive the vendor (provider provenance, `ProviderPriceContext` as
+a claim rather than a baseline, the client-side budget ledger of D20, the fail-safe 429
+classification of D4); and a future *rented acquisition* candidate should be judged
+against a bar that already exists rather than starting from nothing.
 
-**Provenance:** every provider fact below was read from SerpApi's own documentation
-on 2026-10-03 (the engine pages, the price-insights and booking-options sub-pages,
-the status/error-codes page, the Search Archive page, and the pricing page). Items
-that could not be verified from documentation are marked **[UNVERIFIED]** rather
-than guessed. **No live request was made** — there is no API key on this machine —
-so no field shape here has been observed from a real response.
+**What the decision resolves.** §16 **D1** (ownership) is answered **no**. D10
+(probe-first) and D12 (plan tier) become moot, as does the Legal Shield procurement
+question (§4.3) and the credential convention of §14 — no key is ever needed, nothing in
+the repository reads `SERPAPI_KEY`, and nothing should.
+
+**Provenance:** the provider facts below were read from SerpApi's own documentation on
+2026-10-03 (the engine pages, the price-insights and booking-options sub-pages, the
+status/error-codes page, the Search Archive page, the pricing page); items that could
+not be verified from documentation are marked **[UNVERIFIED]** rather than guessed.
+**Then, later the same day, a live probe ran:** a valid key was found on the machine
+(misfiled as `SERPER_API_KEY`, §14), and seven searches on the Free plan measured the
+cache, pin, price-context and coverage behaviour recorded in §17 and folded in
+throughout this document. Where the two disagree, §17's measurements win, and the
+**[UNVERIFIED]** markers the probe resolved were updated in place.
 
 **Companion:** [`serpapi-provider-implementation.md`](serpapi-provider-implementation.md).
 
@@ -799,7 +812,7 @@ local provenance   what we keep — the minimum normalised query required for
 
 | # | Decision | Status |
 |---|---|---|
-| D1 | Add SerpApi as an **optional market provider adapter** inside this repo, behind the existing `FlightOffer` contracts, with no new public surface and no core dependency | **OPEN — owner** (it is provider acquisition, the one thing [`trvl-study-design.md`](trvl-study-design.md) D10 reserves to the owner) |
+| D1 | Add SerpApi as an **optional market provider adapter** inside this repo, behind the existing `FlightOffer` contracts, with no new public surface and no core dependency | **RESOLVED — NO** (owner, 2026-10-03): LetsFG will not use SerpApi. The lane is **declined, not deferred**; everything gated on it is cancelled, and §17's remaining probes will not run. The lane-independent rules stated in D3–D9 and D15–D20 remain valid for any provider |
 | D2 | Never trust a provider-supplied duration total; recompute from segments and let the existing validators own the result | DECIDED (forced by §12.1) |
 | D3 | `no_cache=true` for every observation that may alert or verify; cached responses only for non-alerting series. Basis is `provider_fetch` (never `provider`) unless a provider timestamp is measured (§7) | DECIDED |
 | D4 | Classify 429 fail-safe: known quota message → `budget_exhausted` (terminal); known throughput indication → `rate_limited`; **anything unrecognised → `rate_limit_unknown`** (transient), never guessed. Fixture-pinned | DECIDED |
@@ -808,9 +821,9 @@ local provenance   what we keep — the minimum normalised query required for
 | D7 | kgmid is provider-local provenance, not canonical identity | DECIDED |
 | D8 | Key from the environment only; never log a request URL (key is a query parameter) | DECIDED |
 | D9 | A per-provider budget ledger; empty-but-successful results consume quota, failures and cache hits do not | DECIDED |
-| D10 | No adapter code until the probe has run. **Partly satisfied 2026-10-03** (§17): freshness, cache, pinning, price context and coverage are measured; the remaining gates are the 429 bodies (P0.5) and empty-search billing (P0.7), both of which need deliberately quota-consuming requests | **DECIDED (gating)** |
+| D10 | No adapter code until the probe has run. **Partly satisfied 2026-10-03** (§17): freshness, cache, pinning, price context and coverage were measured. **Moot since the lane was declined**: the two remaining gates (P0.5, P0.7) will never be run | ~~**DECIDED (gating)**~~ — closed |
 | D11 | Provider price context (`typical_price_range`, `average_price`) is stored as provider claims; not rankable or alertable until its window/cohort is measured (naming and separation rule in D15) | DECIDED |
-| D12 | Plan tier is an owner cost decision. Free (≈8 searches/day) cannot sustain broad or continuous scanning but is sufficient for development, shadow collection and narrowly scoped monitoring; **Starter is the minimum paid tier recommended for continuous operation under the initial budget model** | **OPEN — owner** |
+| D12 | Plan tier is an owner cost decision. Free (≈8 searches/day) cannot sustain broad or continuous scanning but is sufficient for development, shadow collection and narrowly scoped monitoring; Starter was the minimum paid tier recommended for continuous operation | ~~**OPEN — owner**~~ — **moot**: no tier is purchased, the lane being declined |
 | D13 | `flight_result` (flight status) is out of scope for v1 | DECIDED |
 | D14 | The adapter must not import SerpApi's client package; standard library HTTP only | DECIDED |
 | D15 | Provider price fields are a **`ProviderPriceContext`**, not the scanner's baseline: stored as provider claims, non-rankable and non-alertable until their window/cohort is measured, and separable in the evaluation record (§9) | DECIDED |
@@ -823,6 +836,12 @@ local provenance   what we keep — the minimum normalised query required for
 ---
 
 ## 17. Open probes (must run before code)
+
+> **Cancelled 2026-10-03 with the lane** (§16 D1 resolved **no**). The measurements
+> already recorded below stand as the evidence behind that decision; P0.5 (429 bodies)
+> and the empty-search half of P0.7 will **not** be run, so the capability profile keeps
+> their `null`s permanently — which is itself a fact about the lane: it was declined
+> before its failure contract was ever established.
 
 One script, `-m live`-marked, refusing to run without an explicit env flag, on a
 key the owner provides. It measures — recording raw responses as evidence — and
@@ -1005,5 +1024,7 @@ that way.
   **`selected_flights`** with no price — a different shape, not an empty result.
   The correction is recorded rather than quietly fixed, because the same mistake
   is exactly what the `request_kind` parser branch (P1.1/P2.2) exists to prevent.
-- *Pending* — the 429 bodies and empty-search billing (P0.5/P0.7, owner-gated
-  spend), and the owner decisions D1 and D12.
+- *Resolved, 2026-10-03* — **the lane was declined** before the last two probes could
+  run (P0.5's 429 bodies, P0.7's empty-search billing), so **D1 is answered no** and D12
+  is moot. Nothing in this document is pending: §16 records the closure, and §2 and §17
+  are retained as the record of what would have been measured and why.
