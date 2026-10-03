@@ -45,9 +45,24 @@ This document turns the design decisions into ordered, independently reviewable 
 
 One test in `test_duration_timezone.py` appeared to fail but was **not** stale: it needs the declared `airportsdata` dependency, absent from a bare venv but installed by CI's `pip install -e .`. Verified green after `pip install airportsdata`; it is not quarantined.
 
-**Verified:** `cd sdk/python && python -m pytest -m "not live" -q` → `99 passed`, 0 errors, 0 failures (was 17 collection errors + 27 failures).
+**Verified:** `cd sdk/python && python -m pytest -m "not live" -q` → `106 passed`, 0 errors, 0 failures (was 17 collection errors + 27 failures).
 **Acceptance:** met.
-**Remaining follow-up:** when the quarantined modules are deleted or rewritten against the current API, remove the matching `collect_ignore_glob` entries and eventually the block.
+
+**Guards added (owner review #2 of the study).** Quarantine is a holding pen, not a
+fix, and the CI invariant is explicit: *a green gate is not a pass when the suite
+cannot collect a module*. Two guards in `test/docs-claims.test.mjs` keep the pen
+from becoming permanent:
+
+1. **Dead entries fail** — every parked path must exist on disk, so a deleted
+   module cannot linger in the list.
+2. **Growth needs a deliberate edit** — the parked set is pinned to
+   `PARKED_TEST_MODULES = 19`, so adding a module requires updating that expectation
+   (and the recorded reason in `conftest.py`) in the same change.
+
+**Remaining follow-up (unchanged):** prefer **repair** (rewrite against the current
+API) over parking; when a module is deleted or rewritten, remove its
+`collect_ignore_glob` entry, lower `PARKED_TEST_MODULES`, and eventually delete the
+block.
 
 ### P0.2 — Add `CHANGELOG.md`
 

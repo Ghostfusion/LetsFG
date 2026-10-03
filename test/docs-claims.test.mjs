@@ -204,13 +204,27 @@ test('SECURITY.md supported versions track the shipped version line', () => {
 });
 
 // ── Parked Python tests ───────────────────────────────────────────────────
-// sdk/python/conftest.py parks modules that cannot run. An entry pointing at a
-// file that no longer exists is dead configuration, and it hides the real work
-// queue behind an entry nobody can act on.
+// sdk/python/conftest.py parks modules that cannot run. Two guards, both about
+// keeping the quarantine a work queue rather than a resting place:
+//
+//   1. a dead entry (a parked module that no longer exists) fails;
+//   2. the set is pinned to a recorded size, so *adding* a module requires a
+//      deliberate edit here — quarantine cannot grow silently.
+//
+// Quarantine is not the fix: a module should be repaired against the current API
+// or deleted. See docs/trvl-study-design.md §2.10.
 
-test('every parked Python test module still exists', () => {
+const PARKED_TEST_MODULES = 19;
+
+test('the parked Python test set is pinned and every entry exists', () => {
   const entries = [...read('sdk/python/conftest.py').matchAll(/"(tests\/[^"]+)"/g)].map((m) => m[1]);
   assert.ok(entries.length > 0, 'expected collect_ignore_glob entries in sdk/python/conftest.py');
+  assert.equal(
+    entries.length,
+    PARKED_TEST_MODULES,
+    'the quarantine set changed: repair or delete the module instead of parking it, or update ' +
+      'PARKED_TEST_MODULES here deliberately (and the reason in sdk/python/conftest.py)',
+  );
 
   const missing = entries.filter((p) => !existsSync(join(ROOT, 'sdk/python', p)));
   assert.deepEqual(missing, [], 'conftest.py parks modules that no longer exist — delete those entries');

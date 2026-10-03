@@ -1,6 +1,10 @@
 # LetsFG × trvl — Design Study
 
-**Status:** Investigation complete; recommendations not yet implemented.
+**Status:** Investigation complete; selected P0 changes landed; remaining recommendations not yet implemented.
+**Implementation state:**
+- **Landed:** D1 (status/completeness envelope — `sdk/mcp/src/envelope.ts`), D4 (atomic `0600` config writes), D5 (docs-claims + link test), the P0 documentation/security corrections, and the credential-path unification.
+- **Next:** D2 P0 — `outputSchema` + `structuredContent`; then `freshness` in the envelope.
+- **Deferred:** D3 router (until measured evidence exists), D7 telemetry sink (interface only, no store), D8 SSRF guard, D9 documentation restructuring.
 **Date:** 2026-10-03
 **Subject:** `https://github.com/MikkoParkkola/trvl` (Go travel MCP server + CLI).
 **Scope:** What LetsFG can learn, what it should not copy, and the target design for each adoptable pattern.
@@ -48,20 +52,69 @@ Each pattern states the trvl mechanism, the evidence, and the LetsFG analogue. `
 **Target design:** add an envelope to search/hotel tool results:
 ```
 status: ok | no_results | timeout | rate_limited | auth_required | failed
-completeness: complete | partial | blocked
-freshness: live | stale | unknown        # added by owner review 2026-10-03
-observed_at: <RFC 3339>                  # when the source was actually asked
+completeness: complete | partial | blocked     # optionally { state, expected, completed, failed }
+freshness: live | stale | unknown              # added by owner review 2026-10-03
+observed_at: <RFC 3339>                        # earliest trustworthy observation time (definition below)
 sources: [{ id, status, results, retry_after_ms?, fix_hint_code?, detail? }]
 ```
 `no_results` and `timeout` are distinct; `fix_hint_code` is a small closed enum. Keep the human text and the machine envelope on separate content blocks (§2.2).
 
+**Contract invariant — three independent axes, never one state machine (review #2 of this study).**
+
+> **`status` describes the execution outcome; `completeness` describes coverage;
+> `freshness` describes temporal validity. None is derived by collapsing the others
+> into a single state.**
+
+They combine freely, and all three of these are valid and meaningful:
+
+```
+status = ok        completeness = partial   freshness = live      # a search that answered, incompletely, just now
+status = timeout   completeness = blocked   freshness = unknown   # we learned nothing
+status = ok        completeness = complete  freshness = stale     # a retained observation, still valid as evidence
+```
+
+This matters because the consumer reasons about the axes independently: the
+scanner will gate an alert on completeness *and* freshness *and* status at once,
+and a collapsed enum would force it to re-derive the missing dimensions from the
+one that survived.
+
+**`observed_at` semantics (review #2 of this study).** One canonical definition,
+because `freshness` drives alert eligibility:
+
+> `observed_at` is the **earliest trustworthy** timestamp representing when the
+> returned data was observed. If the upstream does not supply one, the client
+> **MUST NOT manufacture provider observation time**; it may fall back to client
+> receipt time **only** under the explicit semantics below, and it must be possible
+> to tell the two apart.
+
+The three timestamps the scanner layer will ultimately want are:
+
+```
+requested_at   # when the client initiated the request
+observed_at    # when the data was observed — provider-stamped if available,
+               # otherwise client receipt time, with the basis recorded
+received_at    # when the client finished reading the response
+```
+
+The MCP envelope carries `observed_at` plus `observed_at_basis` (`provider` |
+`client_receipt`) rather than all three: the wire contract needs one number and a
+way to know how much to trust it. Manufacturing a provider-stamped time from a
+client clock is the failure this rule exists to prevent — it would make a stale
+fare look freshly observed, and the scanner's whole purpose is to act on prices at
+the right moment.
+
 **Why `freshness` (review).** A retained observation is dangerous without it: `current_price = 6200` means nothing unless you also know *when* it was seen and whether it was verified. A scanner that keeps observations must never present a stale price as current, so the two fields are part of the contract from the start rather than a later retrofit. `unknown` is the honest default for anything the client did not fetch itself.
 
-**Completeness must be able to grow quantitatively (review).** The enum stays the MCP contract, but the shape should not *prevent* the future form:
+**Completeness must be able to grow quantitatively (review #1) — optionally (review #2).** The enum stays the MCP contract, but the shape should not *prevent* the future form:
 ```
 completeness: { state: complete|partial|blocked, expected: 8, completed: 7, failed: 1 }
 ```
-`MayClaimExhaustive` is then derived, not asserted. This matters for the scanner: a one-source $5,500 result and a seven-source $5,500 result are not the same claim, and only the quantitative form can tell them apart.
+`expected`/`completed`/`failed` are **optional extensions, not a required field on every tool**: a single-origin search reporting `expected = 1, completed = 1, failed = 0` is accounting that adds nothing. The invariant that actually matters is what `complete` is allowed to mean:
+
+> **`complete` must mean the server knows the intended search scope was satisfied —
+> not merely that a response arrived.**
+
+A one-source $5,500 result and a seven-source $5,500 result are not the same claim; the quantitative form is how a caller will eventually tell them apart, and `MayClaimExhaustive` is derived from it rather than asserted.
 
 ### 2.2 Structured results + audience-annotated content — `[ADOPT]`
 
@@ -75,6 +128,18 @@ completeness: { state: complete|partial|blocked, expected: 8, completed: 7, fail
 1. **P0 — `outputSchema` + `structuredContent`.** The contract an agent codes against.
 2. **P1 — content separation** (summary for the user, JSON for the assistant).
 3. **P2 — audience/priority annotations**, only after the client matrix (Claude, Cursor, Windsurf, ChatGPT) is validated against a real payload. Annotations are presentation, and our own open question admits they are untested here; an unvalidated annotation is a compatibility risk with no upside yet.
+
+**`structuredContent` is canonical; text is a rendering (review #2 of this study).**
+
+> The assistant-readable structured payload is **authoritative**. Human-readable
+> text is **derived** from it and must not contain information absent from the
+> structured contract, unless that text is explicitly marked as explanatory prose.
+
+Otherwise the two representations drift, and the drift is invisible: a summary that
+says "cheapest is $412" while the structured payload shows that $412 came from a
+`partial` search is exactly how a client ends up asserting something its own
+contract denies. The invariant also decides arguments in advance — when the two
+disagree, the structured payload is right and the text is a bug.
 
 ### 2.3 `tools/list` size control and callable-but-unadvertised tools — `[ADOPT, opt-in]`
 
@@ -111,6 +176,17 @@ ClientTelemetryEvent   # { kind, at, duration_ms?, status?, lane?, detail? }
 …and initially send it nowhere (a no-op sink). A JSONL file, an OpenTelemetry exporter or a debug logger can implement the same interface later, when there is a question to answer. Writing `~/.letsfg/health.jsonl` now would add a file, a rotation rule and a redaction rule for data nobody reads.
 
 **Important boundary (review).** Client operational telemetry — auth-refresh failure, HTTP failure, latency, late-merge wait — is **not** the same thing as travel observation data (fare observations, price changes, availability, price history). The second is **domain data**, owned by the scanner layer, and mixing the two would put fare history behind a "health log" nobody thinks of as a system of record. See [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §5 (Contracts).
+
+The two pipelines, side by side — they share no store, because they are different
+kinds of fact:
+
+```
+client operation  →  ClientTelemetryEvent  →  sink            (no-op today; §2.5, D7)
+search + parse    →  FareObservation       →  observation store (scanner, D11)
+
+Search → Observation → Identity → History → Evaluation → Alert      (domain)
+ClientOp → ClientTelemetryEvent → sink                              (operations)
+```
 
 ### 2.6 Atomic state writes with restrictive permissions — `[ADOPT]`
 
@@ -155,9 +231,31 @@ ClientTelemetryEvent   # { kind, at, duration_ms?, status?, lane?, detail? }
 
 **trvl:** a regression-test merge gate: for PRs whose title or commits match `^(fix|hotfix|bugfix)(\(|:| )`, every changed source directory must also contain a changed `*_test.go` (`regression-test-gate.yml`), with an auditable bypass label. Coverage is a hard 80% gate. A single `make dod` means "CI would accept this". Tool versions are SHA-pinned and a `check-workflow-hygiene.sh` guard fails CI on an unpinned `uses:`.
 
-**LetsFG:** `.github/workflows/test.yml` has a `test-coverage-gate` for **new TS files only**. The Python gate (`pytest -m "not live"`) **currently fails collection**: 17 test modules import `letsfg.connectors.*` packages removed in June 2026 (`f91be5b`). No doc-claims or link tests exist.
+**LetsFG:** `.github/workflows/test.yml` has a `test-coverage-gate` for **new TS files only**. The Python gate (`pytest -m "not live"`) **failed collection** — 17 test modules imported `letsfg.connectors.*` packages removed in June 2026 (`f91be5b`) — and there were no doc-claims or link tests. **Both fixed 2026-10-03:** the modules are parked with recorded reasons in `sdk/python/conftest.py`, the suite collects and runs (`106 passed`), and `test/docs-claims.test.mjs` + `test/workflow-hygiene.test.mjs` now exist and are required checks.
 
-**Target design:** fix/quarantine the broken modules first (they block the gate outright), then add (a) a regression-test gate for TS packages, (b) a docs-claims test in CI, (c) SHA-pinning of workflow actions.
+**Target design:** fix/quarantine the broken modules first (they block the gate outright), then add (a) a regression-test gate for TS packages, (b) a docs-claims test in CI, (c) SHA-pinning of workflow actions. **All three landed 2026-10-03**, and the suite collects again.
+
+**Contract invariant (review #2 of this study):**
+
+> **CI must not report a green test gate when the Python suite cannot collect a
+> module.** A quarantined module is a known, recorded piece of debt — not a pass.
+
+So quarantine is never the fix; it is the holding pen, and the plan distinguishes
+the two explicitly:
+
+```
+repair        # the module is rewritten against the current API   ← preferred
+quarantine    # parked, with a recorded owner/reason, and a plan to delete or repair
+```
+
+Two guards keep the pen from becoming permanent:
+
+1. **Dead entries fail.** Every path in `sdk/python/conftest.py`'s
+   `collect_ignore_glob` must exist on disk (`test/docs-claims.test.mjs`) — so a
+   parked module that gets deleted cannot linger in the list.
+2. **Growth needs a visible decision.** The parked set is pinned to a recorded
+   size, so adding a module requires editing the expectation in the same change —
+   the same "no silent drift" discipline the workflow-hygiene rules use.
 
 ### 2.11 AGENTS.md as an executable install prompt — `[ADOPT]`
 
@@ -205,7 +303,7 @@ ClientTelemetryEvent   # { kind, at, duration_ms?, status?, lane?, detail? }
 | D7 | Defer client-side health log / dashboard; **define the interface only** (`ClientTelemetryEvent`, no-op sink) | Only one client-owned source; low value today, and a file plus rotation plus redaction for data nobody reads is a subsystem we would regret | A second lane, or repeated transport drift |
 | D8 | Defer SSRF guard | No user-supplied fetch target exists | `LETSFG_BASE_URL` honoured in a server context, or a callback added |
 | D9 | Defer AGENTS/CLAUDE audience split to a staged pass | Large doc rewrite; do *after* P0 (facts) and P1 (checks), and only when the MCP contract has stopped moving | — |
-| D10 | **Architectural principle:** borrow trvl's client-side contracts and engineering patterns; never reproduce its provider/search-engine architecture unless LetsFG assumes ownership of provider acquisition | Keeps the client a client. Prevents "trvl has a nice feature, let's port it" from silently importing an engine we do not maintain | LetsFG explicitly takes ownership of provider acquisition |
+| D10 | **Architectural principle (permanent invariant):** borrow trvl's client-side contracts and engineering patterns; never reproduce its provider/search-engine architecture unless LetsFG assumes ownership of provider acquisition | Keeps the client a client. Prevents "trvl has a nice feature, let's port it" from silently importing an engine we do not maintain. The ownership model in §7 is its concrete form | LetsFG explicitly takes ownership of provider acquisition |
 | D11 | **Boundary:** travel observation data (fares, price history, availability) is *domain data*, not telemetry — it belongs to the scanner layer's store, never to a health log | A system of record must be named as one; fare history behind `health.jsonl` is undiscoverable and unqueryable | — |
 | D12 | Carry **verified-vs-indicative** price semantics in the contract, but put the *policy* (what may alert) in the scanner, not in the client | The client can only report what it observed; "is this good enough to act on" is a product decision with a different owner | — |
 
@@ -247,15 +345,37 @@ CI
 - Q3 ~~Is the `openapi.yaml` double-prefix a spec error or a server quirk?~~ **Answered and fixed 2026-10-03:** the server URL and the path keys both carried `/api/v1`; the spec was wrong, and `test/docs-claims.test.mjs` now pins the composition.
 - Q4 Do we want a `DESIGN.md` at root when `docs/architecture-guide.md` already exists? Prefer extending the existing doc and linking, to avoid a third architecture surface. `[INFERENCE]`
 
+**Priority (review #2 of this study).** Not every question is equally load-bearing,
+and one of them blocks the scanner outright:
+
+| Question | Priority | Why |
+|---|---|---|
+| **Q8** rate-limit failure behaviour | **P0 scanner prerequisite** | A continuously running scheduler cannot be written until we know what crossing the limit does: `429`? queued? hard failure? `Retry-After`? account suspension? **quota consumed by a rejected search?** |
+| Q1 source status | P1 | Decides whether `completeness` is carried or synthesised |
+| Q9 fare identity | P1 | Decides whether identity is inherited or constructed (it is constructed) |
+| Q10 price expiry | P1 | Drives `freshness` and re-verification windows |
+| Q11 re-verification | P1 | The verified-before-alert gate depends on it |
+| Q2 MCP client matrix | P1 (MCP) | Gates only D2's P1/P2 stages |
+| Q6 multi-destination | P2 | Shapes the planner's first phase, not its feasibility |
+| Q7 volume economics | P2 | Shapes budget policy, not the contract |
+| Q3 OpenAPI composition | **Done** | Fixed and pinned |
+| Q4 architecture-doc location | Low | A filing decision |
+
 **Scanner-layer questions (owner review: these are the ones that matter to the product).** Each carries what is already known from this repository's own API documentation, so the list is a work queue rather than a blank page.
 
 - **Q5 — Does LetsFG expose the search dimensions the scanner needs?** Partly, and the gaps are structural. Supported today: one origin, **one** destination, a single `date_from` (+ `return_date`), `cabin_class: "F"` for First, `max_stops`, passengers, currency, `limit`, `sort`, and a departure-time window (`docs/api-search.md:20-45`, `docs/cli-reference.md:55`). **Not supported anywhere in the API: a departure *range*, a return range, or a trip-duration/nights window.** A scanner over flexible dates must therefore fan out over dates itself and carry the scheduling cost — which is precisely what makes a Search Planner necessary rather than optional.
 - **Q6 — Can it search multiple destinations in one operation?** Yes, two primitives, with very different semantics: `POST /flights/discover` takes **up to 20 destinations from one origin in a single call** and returns **indicative** prices, billed as **1 search** for the whole batch, 2–5 s (`docs/api-search.md:290-340`); `POST /flights/multi-search` fires N destinations in parallel and bills **1 search per destination** (`docs/api-search.md:20-45`). The discover response even reports per-destination absence honestly (`{"destination":"ORD","price":null,"found":false}`) and carries a `data_note` saying the prices are indicative — which is exactly the verified-vs-indicative distinction the scanner needs, arriving from the server.
-- **Q7 — What is the maximum practical search volume?** The ceiling is billing, not throughput: **every destination counts as one search** with no bundle discount, except discover. PFS card limits are 10 per 10 min / 30 per hour / 100 per day; the Developer API is 60 req/min with 200 free searches after each booking and $0.01 per excess search (`AGENTS.md` rate-limit table). A 10-origin × 50-destination × 90-day × 10-duration expansion is therefore not a search plan — it is a budget, and the planner must treat it as one.
+- **Q7 — What is the maximum practical search volume?** The ceiling is billing, not throughput: **every destination counts as one search** with no bundle discount, except discover. PFS card limits are 10 per 10 min / 30 per hour / 100 per day; the Developer API is 60 req/min with 200 free searches after each booking and $0.01 per excess search (`AGENTS.md` rate-limit table). The implication is structural, not arithmetic:
+
+```
+candidate search count → cost estimate → rate-limit feasibility → execution schedule
+```
+
+…**not** `destination pool → blind Cartesian product`. A 10-origin × 50-destination × 90-day × 10-duration expansion is therefore not a search plan — it is a budget, which is why the Search Planner is a first-class component rather than a loop. The planning algorithm itself belongs in the scanner design (§6 there), not here.
 - **Q8 — What is the actual polling/rate-limit contract?** Published for the happy path (above), but the **failure direction of the limiter is still unknown** — see implementation plan P1.3. That gap is worth closing before a scheduler depends on it.
-- **Q9 — Does the API return stable fare/itinerary identifiers?** Within one search an offer has an `id`, but nothing documented promises stability across searches, and `discover` returns no fare identity at all — only a destination and a price. So **fare identity must be constructed client-side** (see the scanner design's `FareIdentity`); it cannot be inherited.
+- **Q9 — Does the API return stable fare/itinerary identifiers?** Within one search an offer has an `id`, but nothing documented promises stability across searches, and `discover` returns no fare identity at all — only a destination and a price. So **identity must be constructed client-side** (the scanner design's `ItineraryIdentity` / `OfferIdentity`); it cannot be inherited.
 - **Q10 — How quickly does a returned price expire?** Offers expire ~15 minutes after a search (`AGENTS.md`), and discover prices are explicitly indicative and not bookable. Retained observations therefore need `observed_at` + `freshness` from the moment they are stored (§2.1).
-- **Q11 — Can a result be re-verified before alerting?** Yes, and it is the only way to avoid the "headline price, checkout price" failure: re-run `/flights/search` for that specific destination and date pair and compare. That re-check is what the scanner's `price_status: observed → verified` transition models (§2.4; scanner design §Contracts).
+- **Q11 — Can a result be re-verified before alerting?** Yes, and it is the only way to avoid the "headline price, checkout price" failure: re-run `/flights/search` for that specific destination and date pair and compare. That re-check is what the scanner's `price_status: observed → verified` transition models (§2.4; scanner design §5, §6.5).
 
 ---
 
@@ -275,4 +395,56 @@ This study answers exactly one question: **what should LetsFG learn from trvl?**
 
 **Priority order accepted from the review (2026-10-03):** P0 correctness/security → P1 MCP contract → P2 scanner foundations (contracts, planner, scheduler) → P3 intelligence (history, scoring, confidence) → P4 user experience (alerts, then one message format, no dashboard) → P5 optimization (adaptive frequency, budget). The client-side items in P0 and part of P1 are already landed; nothing in P2–P5 may be smuggled in as a "cleanup" under working-agreement rule 4 — it needs its own scope.
 
-**Review provenance.** This document was reviewed by the owner on 2026-10-03. Accepted and applied: the architectural principle (D10), `freshness` in the envelope, the quantitative path for completeness, staged `structuredContent` work, the corrected router trigger, the health-log narrowing plus the telemetry/domain-data boundary (D11), the staged docs plan, the P0 promotion for atomic writes, and the scanner-layer open questions Q5–Q11. The review's central recommendation — *keep this study narrow and put the product architecture in its own document* — is what §6/§7 and the scanner design implement.
+**Ownership model (review #2 of this study) — the D10 invariant, made concrete.**
+
+| Concern | LetsFG client | Hosted engine | Scanner |
+|---|---|---|---|
+| MCP protocol · client auth · client transport | **Yes** | — | — |
+| Provider acquisition · search execution | **No** | **Yes** | — |
+| Source of fare observations | — | **Yes** | — |
+| Fare history · identity · search planning · alert policy | — | — | **Yes** |
+| Client telemetry | **Yes** | — | — |
+
+D10 is a **permanent architectural invariant**, not a position taken in this study:
+LetsFG does not become a travel search engine. The failure it prevents is
+predictable — see a useful trvl feature, notice we lack it, port it, and end up
+maintaining two overlapping travel engines.
+
+**And one rule that keeps this document from growing back into the scanner:**
+
+> **No scanner behaviour may be introduced into this study solely because it
+> consumes a contract defined here.**
+
+The contract belongs here; the policy belongs in the scanner (D12). "The scanner
+needs freshness, so let's add scanner freshness logic here" is the exact move this
+sentence forbids.
+
+**Review provenance.** This document was reviewed three times by the owner on 2026-10-03.
+
+- *Review #1* — architecture and scope: accepted and applied as the architectural
+  principle (D10), `freshness` in the envelope, the quantitative path for
+  completeness, staged `structuredContent` work, the corrected router trigger, the
+  health-log narrowing plus the telemetry/domain-data boundary (D11), the staged
+  docs plan, the P0 promotion for atomic writes, and the scanner-layer open
+  questions Q5–Q11. Its central recommendation — *keep this study narrow and put
+  the product architecture in its own document* — is what §6/§7 and the scanner
+  design implement.
+- *Review #2* — contract precision and record-keeping, applied: the **three-axis
+  invariant** (`status` / `completeness` / `freshness` are independent, never one
+  state machine) and the **`observed_at` semantics** with
+  `requested_at`/`observed_at`/`received_at` and `observed_at_basis` (§2.1);
+  quantitative completeness marked **optional** with the "`complete` means the
+  intended scope was satisfied" invariant (§2.1); `structuredContent` declared
+  **canonical** and text a derived rendering (§2.2); the two pipelines written out
+  side by side (§2.5); the CI invariant *a green gate is not a pass when the suite
+  cannot collect*, with repair vs quarantine and the two anti-growth guards
+  (§2.10); the question priority table with **Q8 promoted to P0 scanner
+  prerequisite** (§6); the ownership model table and the "no scanner behaviour
+  enters this study because it consumes a contract defined here" rule (§7); and
+  the status/implementation-state split at the top of this document.
+- *Approval record (review #2):* architecture **approved**, scope boundary
+  **approved**, decision register **approved**, implementation direction
+  **approved**; remaining contract work Q1/Q2; scanner dependency questions **Q8
+  first**, then Q1/Q9–Q11; documentation restructuring deferred; router deferred
+  until measured evidence; health store **not built**; provider architecture
+  explicitly out of scope.
