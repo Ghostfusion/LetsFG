@@ -122,8 +122,15 @@ All five are reached through one endpoint: `GET https://serpapi.com/search`.
 - `search_metadata.id` is a durable handle for the **Search Archive**
   (`GET https://serpapi.com/searches/{id}.json`), which serves `json` or `html`
   for **31 days**, and answers `410 Gone` afterwards.
-- `search_metadata` timestamp fields (e.g. when a cached result was produced):
-  **[UNVERIFIED]** — not documented on any page read, and it decides §7.
+- `search_metadata` fields, **measured 2026-10-03** on the Free plan: `id`,
+  `status`, `created_at`, `processed_at` (both `YYYY-MM-DD HH:MM:SS UTC`),
+  `total_time_taken`, `google_flights_url`, `json_endpoint`, `markdown_endpoint`,
+  `raw_html_file`, `prettify_html_file`. The timestamps are SerpApi's *processing*
+  times, not Google's fare-generation time — so they support
+  `observed_at_basis: provider_fetch` and never `provider` (§7).
+- **A cache hit is detectable, measured:** an identical repeat of a query returns
+  the **same `search_metadata.id`** with the original `created_at`, so the adapter
+  can distinguish "served from cache" from "fetched now" rather than guessing.
 
 ### 4.3 Cost, quota and throughput
 
@@ -150,28 +157,53 @@ All five are reached through one endpoint: `GET https://serpapi.com/search`.
   $150/mo Production plan. **ZeroTrace** (no retention of parameters, queries or
   results) is **enterprise-only** — the Cloud tiers.
 
+**The account endpoint (measured 2026-10-03, on the Free plan).**
+`GET https://serpapi.com/account?api_key=…` is **free** and returns `plan_id`,
+`plan_name`, `searches_per_month`, `plan_searches_left`, `total_searches_left`,
+`extra_credits`, `this_month_usage`, `this_hour_searches`, `last_hour_searches`,
+`account_rate_limit_per_hour`, `plan_renewal_date`, `account_status`. Two measured
+points the adapter depends on:
+
+- `account_rate_limit_per_hour` read **250** on the Free plan, while this page's
+  table documents Free throughput as **50/hr**. So 50 is the *guaranteed* figure
+  and 250 the reported allowance; the adapter plans sleeps against the documented
+  floor and treats the account value as a ceiling, never the reverse.
+- The counters are **lagged** — across a measured batch, `this_month_usage` moved
+  *backwards* by one when a cache hit occurred (§10). They are usable for coarse
+  reconciliation, not for attributing a single call.
+
 ### 4.4 Response fields, verified shapes
 
-`price_insights` (confirmed on its own sub-page — the shape in the main API
-page's example is truncated and must not be used as a contract):
+`price_insights` (documented shape, **confirmed by measurement 2026-10-03**):
 
 ```json
 "price_insights": {
-  "lowest_price": 1339,
-  "price_level": "high",
-  "typical_price_range": [570, 1050],
-  "price_history": [[1691013600, 575], [1691100000, 575]]
+  "lowest_price": 1380,
+  "price_level": "low",
+  "typical_price_range": [1450, 2000],
+  "price_history": [[1785794400, 1375], [1785880800, 1376]]
 }
 ```
 
-- `typical_price_range` — two integers, **low bound and high bound**.
-- `price_history` — array of `[unix_timestamp, price]` pairs.
-- `lowest_price` — "the lowest price among the **returned flights**", i.e. the
-  current result set, *not* a market low. This distinction must survive into our
-  contracts (§9).
-- `price_level` — a string; documented only as "price level of the
-  `lowest_price`". Values seen: `low`, `high`. **Enum is [UNVERIFIED]** — do not
-  switch on it.
+- `typical_price_range` — two integers, the low and high bound.
+- `price_history` — array of `[unix_timestamp, price]` pairs. **Measured
+  granularity is daily** (consecutive steps exactly `86400` s), and the sampled
+  series held **62 points spanning ~2 months**, ending at the query date. It is a
+  *past* series, not a forecast.
+- `lowest_price` — "the lowest price among the **returned flights**"; measured
+  consistent with that (it equalled the cheapest itinerary in the same response),
+  i.e. the current result set, *not* a market low. This distinction must survive
+  into our contracts (§9).
+- `price_level` — values **measured across probes: `low`, `typical`, `high`**, and
+  they behave as a band comparison against `typical_price_range` (measured:
+  `lowest_price` 1380 below the range's low bound 1450 → `"low"`). It is still not
+  a documented enum, so it is carried and displayed, never switched on.
+- **The context is query-dependent.** The same route with `selected_flights_json`
+  present returned a different context (`lowest_price` 2103,
+  `typical_price_range` `[1900, 3700]`, `price_level` `typical`) than the unpinned
+  query (`1380`, `[1450, 2000]`, `low`). A `ProviderPriceContext` therefore belongs
+  to the **exact query that produced it** and must never be reused across request
+  kinds.
 
 `google_flights` itinerary fields (verified from the documented response example):
 `best_flights[]` / `other_flights[]`, each with `flights[]` (segments:
@@ -315,9 +347,14 @@ observed_at_basis = client_receipt   no upstream time at all; we received it now
    trustworthy timestamp, `provider_fetch` or `client_receipt` is the honest
    answer, and `freshness` follows from the basis: a `provider_fetch` observation
    may be `live`; a cached one may not.
-5. If the probe finds a trustworthy timestamp field, `provider` becomes available
-   and rule 1 may be relaxed for verification — with the measured field recorded,
-   never inferred from cache behaviour.
+5. **Measured 2026-10-03:** a provider *fetch* timestamp does exist
+   (`created_at` / `processed_at`, UTC), and a cache hit returns the **original**
+   one together with the same `search_metadata.id`. So `provider_fetch` is now
+   evidence-backed rather than conventional — and, more usefully, the adapter can
+   **detect** that it was served from cache, and must then refuse to treat the
+   result as fresh no matter what it decides about `no_cache`. `provider` (an
+   upstream observation stamp) remains unavailable: nothing in a measured response
+   claimed to be one.
 
 ### 7.1 Completeness is relative to a declared coverage contract
 
@@ -398,6 +435,24 @@ different price" is **not** verification — it is the single most valuable aler
 signal this system can produce, and collapsing it into `verified` would destroy
 exactly the event the scanner exists to catch.
 
+**Measured 2026-10-03 — the pin does not carry a price.** `selected_flights_json`
+on a real one-way itinerary returns HTTP 200 `Success` with a **different response
+shape**: top-level `selected_flights[]`, `baggage_prices`, `booking_options`,
+`price_insights` — and **no `best_flights` / `other_flights`**. The pinned entry
+carries `flights[]`, `total_duration`, `carbon_emissions`, `booking_token` and
+`airline_logo`, but **no `price` field at all**. Consequences:
+
+- `verified` is **not reachable from the pin alone**: there is no returned price to
+  compare with `expected_price`, so the first row above cannot fire as written.
+- The workable design is therefore **fresh re-search + identity match + price
+  comparison** — the "search B" form — which the probe found sound: identity
+  (`B6 1408`, CDG→JFK, 2026-11-10) was stable across requests, and two searches
+  seconds apart returned 1380 and 1378 EUR for the same itinerary, which is
+  precisely the `price_changed` signal this row exists to detect.
+- The pin's `booking_token` leads to `booking_options[]` — **OTA prices**, which
+  §8/D5 already forbids treating as our itinerary's fare. The token route does not
+  rescue verification; it changes the product.
+
 ---
 
 ## 9. Provider price context, and the one trap in `lowest_price`
@@ -468,6 +523,21 @@ BillableSearch    a search the provider counted against our monthly quota
 Concurrency ceiling: the plan's **guaranteed searches per hour** (50 on Free,
 200 on Starter) — not a per-second rate. The adapter must be shaped to *spread*
 searches across the hour rather than burst.
+
+**Measured 2026-10-03 — do not derive the ledger from the account endpoint.**
+Reading `this_month_usage` around individual calls is not reliable. In a controlled
+sequence: a fresh search moved it `6→7`; an **identical repeat (cache hit) moved it
+`7→6`** — the counter lagged and settled downward once the cache hit was
+recognised — and `no_cache` then moved it `7→8`, with `plan_searches_left`
+mirroring each move in reverse. Therefore:
+
+- the ledger's counters are **derived client-side** from our own classification of
+  the request (fresh → billable; exact repeat within 1 h → not; `no_cache` →
+  billable; failure → not), which is deterministic and unit-testable;
+- the account endpoint is used for **coarse periodic reconciliation** — a drift
+  alarm, not the per-call source of truth;
+- the pricing rule is nonetheless confirmed *in direction*: a cache hit consumed
+  nothing, and an exact repeat returned the same `search_metadata.id`.
 
 Free tier reality check: 250 searches/month is **≈8/day**, so it cannot sustain
 broad or continuous scanning. It *is* sufficient for development, shadow
@@ -556,6 +626,14 @@ The repo once ran a `serpapi_google` connector, and its output was measured:
 - The regression is pinned by `sdk/python/tests/test_duration_timezone.py`
   ("serpapi_google publishes the sum of flight times, dropping the layover"), which
   is green and not quarantined.
+- **Live re-check, 2026-10-03:** across five sampled itineraries (1–3 segments,
+  CDG→JFK, 2026-11-10), SerpApi's `total_duration` **equalled**
+  `sum(segment durations) + sum(layover durations)` in every case — the provider's
+  own field is **correct today**, and the historical defect does not reproduce. The
+  1,766-affected-totals measurement stands as history, but this document must not
+  imply the provider currently drops layovers. The invariant below is kept anyway:
+  it costs nothing, it protects against a provider-side regression, and it removes
+  any need to trust an aggregate we can compute ourselves.
 
 **Design consequence:** the adapter MUST supply `FlightSegment` records with
 origin/destination/arrival times and MUST NOT pass a provider total through
@@ -581,9 +659,11 @@ adapter's job is to *not defeat them*: no pre-filled totals, no
 | Mutual exclusions | `include_airlines` ⊥ `exclude_airlines`; `departure_token` ⊥ `booking_token`; `selected_flights_json` ⊥ tokens and ⊥ `multi_city_json`; `no_cache` ⊥ `async`; `query` ⊥ `travel_duration`/`trip_length` | one request builder per mode, with assertions |
 | `exclude_basic` is narrow | only `gl=us` **and** `travel_class=1` | don't offer it as a general filter |
 | Provider-side filtering is lossy | docs: if `max_duration` returns nothing, "try increasing it by up to 200 minutes to account for route-specific scheduling variances" | never conclude "no such flight" from a filtered empty set — a filtered empty result is `partial`, not `complete` |
-| `deep_search`/`show_hidden` change coverage | default search ≠ browser results | coverage honour (§7) |
+| `deep_search` is **not** a superset | measured 2026-10-03: `deep_search=true` on the same query returned **16** itineraries vs **18** standard, and took 6.87 s vs 1.26 s (≈5.5×). Counts also move between fetches — two searches seconds apart differed by 2 EUR on the same itinerary | never treat `deep` as strictly superior to `standard`; record `coverage_mode` and let completeness answer to the *declared* contract (§7.1) |
 | `type=3` ignores `outbound_date` | multi-city dates live inside `multi_city_json` | builder-per-type |
-| `total_duration` in the documented example is incoherent | 820 minutes shown for a 90-minute flight with a 90-minute layover | never trust the field; recompute (§12.1) — and treat the doc example as illustrative, as the provider itself warns |
+| **`flight_number` formatting varies by response shape** | measured: the pin response returned `"B6 1408"` (with a space) where the search response returned `"B61408"` | normalise (strip whitespace, uppercase) before any identity comparison; never use the raw string as identity |
+| **A pinned request changes the response shape, not just the content** | measured: `selected_flights_json` returns `selected_flights` / `baggage_prices` / `booking_options` / `price_insights` and **no** `best_flights`/`other_flights`, and the pinned entry has **no `price`** (§8.1) | parser branches on `request_kind`; the verifier must not expect a price from the pin |
+| `total_duration` in the *documented example* is incoherent | 820 minutes shown for a 90-minute flight with a 90-minute layover — while the **live** field matched its own segments in five of five samples (§12.1) | treat the doc example as illustrative (the provider says so itself); keep recomputing, so the correctness of a given response never depends on trusting it |
 
 ---
 
@@ -648,6 +728,15 @@ the adapter must not build its own public shape.
   `~/.letsfg/config.json` (contrast: the PFS/Developer credentials have a store
   because the product owns them; a third-party scraping key does not belong
   there). Working agreement rule 1.
+- **Names one letter apart, and a measured misfiling.** This lane's variable is
+  `SERPAPI_KEY` (SerpApi.com); Serper.dev's are `SERPER_API_KEY` / `SERPER_KEY`.
+  Measured in this repository's own `.env` on 2026-10-03: the **SerpApi** key was
+  filed under `SERPER_API_KEY` while `SERPER_KEY` held a genuine Serper key — the
+  two vendors' values sitting under names that suggest the opposite. The adapter
+  therefore resolves **exactly** `SERPAPI_KEY`, must never fall back to a
+  Serper-shaped name, and must fail with an explicit "wrong or missing credential"
+  message rather than a bare 401, because a mis-filed key is the likeliest failure
+  of this adapter's entire configuration surface.
 - SerpApi takes the key as a **query parameter**, so it is present in the request
   URL. Therefore: **never log a full request URL**, never include the URL in an
   exception message, and never surface it in a user-facing error or a report.
@@ -708,7 +797,7 @@ local provenance   what we keep — the minimum normalised query required for
 | D7 | kgmid is provider-local provenance, not canonical identity | DECIDED |
 | D8 | Key from the environment only; never log a request URL (key is a query parameter) | DECIDED |
 | D9 | A per-provider budget ledger; empty-but-successful results consume quota, failures and cache hits do not | DECIDED |
-| D10 | No adapter code until the probe (§17) has run — the caching/freshness rules cannot be finished without it | **DECIDED (gating)** |
+| D10 | No adapter code until the probe has run. **Partly satisfied 2026-10-03** (§17): freshness, cache, pinning, price context and coverage are measured; the remaining gates are the 429 bodies (P0.5) and empty-search billing (P0.7), both of which need deliberately quota-consuming requests | **DECIDED (gating)** |
 | D11 | Provider price context (`typical_price_range`, `average_price`) is stored as provider claims; not rankable or alertable until its window/cohort is measured (naming and separation rule in D15) | DECIDED |
 | D12 | Plan tier is an owner cost decision. Free (≈8 searches/day) cannot sustain broad or continuous scanning but is sufficient for development, shadow collection and narrowly scoped monitoring; **Starter is the minimum paid tier recommended for continuous operation under the initial budget model** | **OPEN — owner** |
 | D13 | `flight_result` (flight status) is out of scope for v1 | DECIDED |
@@ -717,6 +806,8 @@ local provenance   what we keep — the minimum normalised query required for
 | D16 | Freshness is two facts, not one: **provider fetch freshness** vs **observation time**. `observed_at_basis` gains a third value, `provider_fetch`, and `observed_at` for a `no_cache` fetch is never reported as `provider` (§7) | DECIDED |
 | D17 | Completeness is measured against a **declared coverage contract** (`coverage_mode`), not against a provider switch; an empty success is not automatically `complete` (§7.1, §11) | DECIDED |
 | D18 | The key's environment name is the vendor's documented **`SERPAPI_KEY`**, not a private invention; the local provenance keeps a minimised query, never the raw URL (§14) | DECIDED |
+| D19 | **Verification is a fresh re-search plus identity match, not `selected_flights_json`** — the pin returns the itinerary without a price (§8.1, measured), and its `booking_token` route leads to OTA referral prices, which D5 excludes | DECIDED (on measurement) |
+| D20 | The budget ledger is **derived client-side**; the account endpoint is a reconciliation signal only, because its counters lag and settle backwards on cache hits (§10, measured) | DECIDED (on measurement) |
 
 ---
 
@@ -769,21 +860,56 @@ derived from it:
 ```json
 {
   "provider": "serpapi_google",
-  "probed_at": "<date>",
+  "probed_at": "2026-10-03",
+  "account": { "plan_id": "free", "searches_per_month": 250, "account_rate_limit_per_hour": 250 },
   "observed": {
-    "cache_detectable": false,
-    "provider_timestamp": null,
-    "retry_after_present": false,
-    "selected_flights_same_itinerary": null,
-    "selected_flights_same_price": null,
-    "price_level_values": [],
+    "cache_detectable": true,
+    "cache_hit_same_search_id": true,
+    "provider_timestamp": "created_at / processed_at (UTC) — provider FETCH time, not upstream observation time",
+    "retry_after_present": null,
+    "selected_flights_same_itinerary": true,
+    "selected_flights_returns_price": false,
+    "price_level_values": ["low", "typical", "high"],
+    "price_history_granularity_seconds": 86400,
+    "price_history_points_observed": 62,
     "empty_search_billable": null,
-    "coverage_delta_deep": null
+    "coverage_delta_deep": -2,
+    "ledger_from_account_endpoint_reliable": false,
+    "duration_totals_match_own_segments": true
   }
 }
 ```
 
-Every `null` is a contract still blocked, and a `true`/`false` must cite the
+**Measured 2026-10-03** (Free plan, **7 searches spent** — account usage moved
+1 → 8, leaving 242 of 250). The two decisive experiments returned:
+
+- **Cache (A):** an identical repeat returned the **same `search_metadata.id`**
+  and the original `created_at` ⇒ cache hits are detectable. `no_cache=true`
+  produced a new id, a fresh `created_at`, **and a different price two seconds
+  later (1380 → 1378 EUR for the same itinerary)** — the first hard evidence that
+  the cache can hide a price move, and the reason §7 rule 1 is not optional.
+- **Pinning (B):** `selected_flights_json` returns the pinned itinerary with
+  **no price** (§8.1), so `verified` is unreachable from the pin; the reachable
+  design is fresh re-search + identity match, where identity was stable
+  (`B6 1408`, CDG→JFK, 2026-11-10) modulo the `flight_number` formatting trap
+  (§12.2).
+- **Timestamps (P0.4):** `created_at`/`processed_at` exist ⇒ `provider_fetch` is
+  evidence-backed; nothing claims to be an upstream observation ⇒ `provider`
+  stays unavailable.
+- **Price context (P0.6):** daily `price_history` (86400 s steps), 62 points over
+  ~2 months, `price_level` ∈ {`low`,`typical`,`high`}, and the context is
+  **query-dependent** (§4.4).
+- **Coverage (P0.8):** `deep_search=true` returned *fewer* itineraries (16 vs 18)
+  at ≈5.5× the latency ⇒ not a superset (§12.2).
+- **Durations (P0.8):** provider totals matched their own segments in 5 of 5
+  samples ⇒ the historical defect does not reproduce (§12.1).
+
+**Still open:** the 429 bodies and `Retry-After` (P0.5) and whether an
+empty-but-successful search is billable (P0.7). Both need deliberately
+quota-consuming requests, so they wait on an explicit owner go-ahead. Every other
+**[UNVERIFIED]** marker in this document is now resolved.
+
+Every `null` above is a contract still blocked, and a `true`/`false` must cite the
 fixture that showed it. Cost: single-digit searches, plus whatever the
 empty-result probe consumes. Free tier (250/mo) is enough. Acceptance: the fixture
 set, the capability profile, and every **[UNVERIFIED]** marker in this document
@@ -856,4 +982,17 @@ that way.
   fetch-vs-observation freshness, verification-as-candidate, completeness relative
   to declared coverage, fail-safe 429 (with the HTTP contradiction fixed), and
   provider price context kept out of the baseline.
-- *Pending* — the probe in §17, and the owner decisions D1 and D12.
+- **The probe ran, 2026-10-03** (Free plan key, 7 searches spent — usage 1 → 8 of
+  250): cache behaviour, `search_metadata` timestamps, the pin's semantics,
+  price-context shape and granularity, coverage under `deep_search`, the duration
+  re-check, and a controlled billing sequence. Results and the filled capability profile are in
+  §17; the facts landed in §4.2/§4.3/§4.4, §7, §8.1, §10 and §12.
+  **One interim reading in this document's own working notes was wrong and is
+  corrected here:** the pinned search was first read as returning "zero
+  itineraries", because the *unpinned* response keys (`best_flights` /
+  `other_flights`) were assumed. The pin returns its result under
+  **`selected_flights`** with no price — a different shape, not an empty result.
+  The correction is recorded rather than quietly fixed, because the same mistake
+  is exactly what the `request_kind` parser branch (P1.1/P2.2) exists to prevent.
+- *Pending* — the 429 bodies and empty-search billing (P0.5/P0.7, owner-gated
+  spend), and the owner decisions D1 and D12.

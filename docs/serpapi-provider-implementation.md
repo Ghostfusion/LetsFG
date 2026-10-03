@@ -39,6 +39,17 @@ price context got its own type instead of being called a baseline.
 Design §17. The adapter's freshness, verification and completeness rules cannot be
 finished without this, so it is a **gate**, not an optimisation.
 
+**Status 2026-10-03: partly satisfied.** A valid SerpApi key was found on this
+machine (filed under a Serper-shaped name — see design §14), and the decisive
+experiments ran for 7 searches on the Free plan (account usage 1 → 8): cache
+behaviour (P0.2),
+`search_metadata` (P0.4), pin semantics (P0.3), price-context shape (P0.6),
+coverage delta and the duration re-check (P0.8), and a controlled billing sequence
+(P0.7, partially). Results and the filled capability profile are in design §17.
+**Still open: P0.5 (429 bodies, `Retry-After`) and the billability of an
+empty-but-successful search (P0.7)** — both need deliberately quota-consuming
+requests and therefore an explicit go-ahead.
+
 ### P0.1 A `live`-marked probe script and its capability profile `PROBE` `OWNER`
 
 **Files:** new `sdk/python/tests/test_serpapi_live.py` (or a script in the
@@ -76,6 +87,13 @@ against search B on segment identity, dates, flight numbers, carrier, cabin, pri
 **Acceptance:** answers **same itinerary? same fare? same price?** — not "HTTP
 200". This is what makes design §8.1's `verified` outcome reachable or permanently
 unreachable, and it is the single most important experiment in P0.
+
+**Measured 2026-10-03 — answered, with a negative:** the pin returns the itinerary
+under **`selected_flights`** (a different response shape, no `best_flights` /
+`other_flights`) and carries **no price**, so `verified` is unreachable from the pin
+alone. Identity *was* stable across requests. Consequence, now design D19:
+verification is implemented as **fresh re-search + identity match + price
+comparison**, and the parser branches on `request_kind` (P1.1, P2.2).
 
 ### P0.4 `search_metadata` and the observation timestamp `PROBE`
 
@@ -193,7 +211,10 @@ baseline path) rather than by convention.
 **Change:** named constants for `stops` (`0`/`1`/`2`/`3`) and **two separate**
 `travel_duration` enums (deals vs explore number them differently); a request model
 per mode (design §12.3) so `return_date` on a one-way request, or both tokens at
-once, cannot be constructed.
+once, cannot be constructed; and an **identity normaliser** — measured, the pin
+response returns `"B6 1408"` where the search response returns `"B61408"`, so
+whitespace and case must be normalised before any itinerary comparison (design
+§12.2).
 
 **Acceptance:** a test that fails if either enum is shared or if a raw stop count
 can be passed through; invalid combinations unrepresentable rather than asserted.
@@ -228,9 +249,12 @@ the registry exposes exactly the methods in design §13 (`booking_options` exclu
 ### P2.2 Mapping to `FlightOffer` `CODE`
 
 **Change:** segments → `FlightSegment`/`FlightRoute` with **no pre-filled totals**
-(P1.2); full provenance per design §6 (`request_kind`, `cache_mode`,
-`coverage_mode`, `retrieval_mode`, minimised query, `search_metadata.id`); status at
-or below the design §5 ceiling; public exposure through the existing
+(P1.2); a parser that **branches on `request_kind`**, because a pinned request
+returns a different shape (`selected_flights`, no price — design §8.1/D19); full
+provenance per design §6 (`request_kind`, `cache_mode`, `coverage_mode`,
+`retrieval_mode`, minimised query, `search_metadata.id`); a **cache-hit refusal**
+that will not report a replayed `search_metadata.id` as a fresh observation;
+status at or below the design §5 ceiling; public exposure through the existing
 `to_public_offer`.
 
 **Acceptance:** a recorded multi-stop fixture produces a layover-inclusive total and
@@ -238,7 +262,11 @@ a complete provenance block; an observation missing `search_metadata.id` is refu
 
 ### P2.3 Budget ledger `CODE`
 
-**Change:** `ProviderRequest` / `ProviderSearch` / `BillableSearch` per design §10.
+**Change:** `ProviderRequest` / `ProviderSearch` / `BillableSearch` per design §10,
+**derived client-side** from our own request classification — measured, the account
+counters lag and settle *backwards* on a cache hit, so they cannot attribute a
+single call (design D20). The account endpoint is used only as a periodic drift
+alarm.
 
 **Acceptance:** a test proving `budget_exhausted` is terminal for the run, that cache
 hits and failures are not billable, and that the scanner's interactive reserve is
@@ -306,8 +334,8 @@ so they will silently rot if kept. Deferred with D-1 — it is the same decision
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
 | O1 | **Is SerpApi a provider lane we own?** (provider acquisition is owner-reserved) | All of P2 | §16 D1 |
-| O2 | **Provide a key for the probe**, accepting quota consumption on it — including the deliberate quota-consuming probes (P0.5, P0.7) | P0 | §17 |
-| O3 | **Which plan tier**, if any — Free cannot sustain broad scanning but is fine for development, shadow collection and narrow monitoring; Starter is the first tier for continuous operation | Cost model | §16 D12 |
+| O2 | ~~**Provide a key for the probe**~~ — **answered 2026-10-03**: a valid SerpApi key exists in this machine's `.env`, misfiled as `SERPER_API_KEY` (design §14). Recommend renaming it to `SERPAPI_KEY`. Remaining sub-decision: approval for the deliberately quota-consuming probes (P0.5, P0.7) | only P0.5/P0.7 | §17 |
+| O3 | ~~**Which plan tier**~~ — **answered 2026-10-03**: the account is on the **Free plan** (250/mo, ≈8/day), with `account_rate_limit_per_hour` 250. Confirms design D12's conclusion: fine for development and shadow collection, Starter needed for continuous operation | D12 stays owner-cost | §16 D12 |
 | O4 | **Legal Shield**: the scraping indemnity starts at $150/mo and ZeroTrace (no retention) is enterprise-only — accept, or route only non-personal queries through this lane | Procurement | §4.3, §14 |
 | O5 | **Fate of the dead sweep script and its four JSON artifacts** | D-1 | §6 above |
 
@@ -346,7 +374,7 @@ so they will silently rot if kept. Deferred with D-1 — it is the same decision
 | Item | Status | Evidence |
 |---|---|---|
 | Design + implementation documents (incl. review #1 revision) | **Done** | This document and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
-| P0.1–P0.8 probe | **Not started** | Needs O2 |
+| P0 probe | **Partly done 2026-10-03** — P0.2, P0.3, P0.4, P0.6, P0.8 and a partial P0.7 measured (7 searches, Free plan, usage 1 → 8); P0.5 and the empty-search half of P0.7 still open | Design §17 capability profile; no fixtures committed yet (that is a repo change awaiting the owner's nod) |
 | P1.1–P1.8 contract freeze + guards | **Not started** | Gated by rule 4 (new files) |
 | P2.1–P2.5 adapter | **Not started** | Gated by O1 |
 | P3 scanner wiring | **Out of scope** | Other repository |
