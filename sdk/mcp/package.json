@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs --clean",
-    "test": "tsx --test src/index.test.ts",
+    "test": "tsx --test src/index.test.ts src/envelope.test.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

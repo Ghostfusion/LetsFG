@@ -59,7 +59,12 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: https://letsfg.co/developers/api/v1
+  # The path keys below already carry the `/api/v1` segment, so the server URL
+  # must stop at `/developers`. They compose: this URL + `/api/v1/agents/register`
+  # = https://letsfg.co/developers/api/v1/agents/register, the base the docs and
+  # the SDKs actually use. Carrying `/api/v1` in BOTH produced
+  # `.../api/v1/api/v1/...` on every generated request.
+  - url: https://letsfg.co/developers
     description: Production
 
 security:

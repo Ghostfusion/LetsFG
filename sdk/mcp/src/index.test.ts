@@ -13,7 +13,10 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const SERVER_PATH = join(__dir, 'index.ts');
 
 function spawnServer(): ChildProcessWithoutNullStreams {
-  return spawn('npx', ['tsx', SERVER_PATH], {
+  // `process.execPath --import tsx` instead of `npx tsx`: `npx` is a shell
+  // script on Windows, so spawn() raised ENOENT and the whole spawn-based suite
+  // went red for a reason unrelated to the code.
+  return spawn(process.execPath, ['--import', 'tsx', SERVER_PATH], {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 }

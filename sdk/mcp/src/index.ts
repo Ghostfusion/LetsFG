@@ -22,6 +22,13 @@
  */
 
 import * as readline from 'readline';
+import {
+  envelopeForData,
+  envelopeForError,
+  firstListLength,
+  parseRetryAfterMs,
+  withEnvelope,
+} from './envelope';
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -130,7 +137,7 @@ function describeNonJsonResponse(status: number, body: string, path: string): st
 }
 
 /** Read a response as JSON, or return an actionable error object — never throw. */
-async function readJson(resp: Response, path: string): Promise<Record<string, unknown>> {
+export async function readJson(resp: Response, path: string): Promise<Record<string, unknown>> {
   const raw = await resp.text();
   let data: Record<string, unknown> | null = null;
   try {
@@ -140,7 +147,12 @@ async function readJson(resp: Response, path: string): Promise<Record<string, un
   }
   if (!resp.ok) {
     const detail = (data.detail as string) || (data.error as string) || `HTTP ${resp.status}`;
-    return { error: true, status_code: resp.status, detail };
+    const out: Record<string, unknown> = { error: true, status_code: resp.status, detail };
+    // Carry the server's own back-off so a rate-limited agent can wait the right
+    // amount instead of guessing or hammering.
+    const retryAfter = parseRetryAfterMs(resp.headers?.get?.('retry-after'));
+    if (retryAfter !== null) out.retry_after_ms = retryAfter;
+    return out;
   }
   return data;
 }
@@ -741,7 +753,7 @@ const TOOLS = [
 
 // ── Tool Handlers ───────────────────────────────────────────────────────
 
-async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
+export async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
   switch (name) {
     case 'search_flights': {
       if (!BEARER_TOKEN && !API_KEY) {
@@ -777,7 +789,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         result = await apiRequest('POST', '/developers/api/v1/flights/search', params) as Record<string, unknown>;
       }
 
-      if (result.error) return JSON.stringify(result, null, 2);
+      if (result.error) {
+        return JSON.stringify(withEnvelope(result, envelopeForError(result)), null, 2);
+      }
 
       // /api/search offers are FLAT: origin/destination/departure_time/stops/
       // duration_minutes sit at the top level, the carrier is the SINGULAR
@@ -863,7 +877,13 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
           };
         }),
       };
-      return JSON.stringify(summary, null, 2);
+      // A search that returned while its late merge was still pending may still
+      // grow, so completeness is `partial` rather than a claim to have seen all.
+      return JSON.stringify(
+        withEnvelope(summary, envelopeForData(allOffers.length, { lateMerge: lateMergeInbound(result) })),
+        null,
+        2,
+      );
     }
 
     case 'resolve_location': {
@@ -955,7 +975,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
             '3. Then carry on polling this tool.';
         }
       }
-      return JSON.stringify(result, null, 2);
+      return JSON.stringify(withEnvelope(result, result.error
+        ? envelopeForError(result)
+        : { status: 'ok', completeness: 'complete' }), null, 2);
     }
 
     case 'answer_booking_question': {
@@ -1042,8 +1064,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
       if (Array.isArray(args.child_ages) && args.child_ages.length) {
         body.child_ages = args.child_ages;
       }
-      const result = await apiRequest('POST', '/developers/api/v1/hotels/search', body);
-      return JSON.stringify(result, null, 2);
+      const result = await apiRequest('POST', '/developers/api/v1/hotels/search', body) as Record<string, unknown>;
+      if (result.error) {
+        return JSON.stringify(withEnvelope(result, envelopeForError(result)), null, 2);
+      }
+      const hotelCount = firstListLength(result, ['hotels', 'results', 'offers']);
+      return JSON.stringify(withEnvelope(result, envelopeForData(hotelCount)), null, 2);
     }
 
     case 'book_hotel': {
@@ -1086,8 +1112,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
 
     case 'get_hotel_booking': {
       const result = await apiRequest('GET',
-        `/developers/api/v1/hotels/booking/${encodeURIComponent(args.booking_job_id as string)}`);
-      return JSON.stringify(result, null, 2);
+        `/developers/api/v1/hotels/booking/${encodeURIComponent(args.booking_job_id as string)}`) as Record<string, unknown>;
+      return JSON.stringify(withEnvelope(result, result.error
+        ? envelopeForError(result)
+        : { status: 'ok', completeness: 'complete' }), null, 2);
     }
 
     case 'cancel_hotel_booking': {

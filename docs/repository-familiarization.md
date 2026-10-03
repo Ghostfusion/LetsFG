@@ -166,10 +166,12 @@ Secrets live only in the config file (chmod 0600) or env; never bundled (plugin 
 | Python SDK | `sdk/python/tests/` (32 files) | unittest + pytest | **green after quarantine**: `pytest -m "not live"` → 99 passed, 0 errors; 19 stale modules are listed in `sdk/python/conftest.py` `collect_ignore_glob` (17 failed at import from missing `letsfg.connectors.*`, 2 failed at runtime) |
 | Python masking (advisory CI) | `test_public_offer_masking.py` | pytest | passes (deps pydantic only) |
 | JS SDK | `sdk/js/src/index.test.ts`, `auth.test.ts` | node:test via tsx | not run here (no node_modules) |
-| MCP | `sdk/mcp/src/index.test.ts` | node:test via tsx | spawn-based protocol tests |
+| MCP | `sdk/mcp/src/index.test.ts`, `envelope.test.ts` | node:test via tsx | protocol smoke + contract guards + envelope unit/E2E; 41/41 pass (verified on Windows after the spawn harness fix) |
 | Plugin logic | `test/model-test.js` | homemade node harness | **PASS 537/537** (verified) |
 | QML preview | `preview/run.py --strict` + fixtures | PySide6 | offline render/behaviour checks |
 | Plugin static rules | `tools/validate.sh`, `check-search-invariant.py` | Bash/Python | manual only, not in CI |
+| Repo docs claims | `test/docs-claims.test.mjs` | node:test (zero deps) | 6/6 pass; new required `docs-claims` CI job (versions, tool list, OpenAPI composition, local links) |
+| Plugin logic suite | `test/model-test.js` | node | 537/537 pass; not wired to CI |
 
 Strong coverage on: plugin logic/security, offer masking, per-lane field names, error taxonomy, hotel hold-then-capture contract. Light coverage: Python CLI end-to-end, live connectors (Tier-2 is private), auth refresh on the QML path (preview flags exist). `test/model-test.js` and `tools/validate.sh` are **not invoked by any workflow**.
 
@@ -212,7 +214,7 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 1. `docs/TESTING.md` + `CONTRIBUTING.md` reference `connectors/tests/smoke_harness.py`, `connectors/test_routes.py`, `website/tests/`, `growth-ops/`, `sdk/python/tests/fixtures/` — **none exist**.
 2. 17 test modules imported `letsfg.connectors.{wizzair,vueling,emirates,skyscanner,tripcom,checkout_engine,…}`, absent since `f91be5b`, so `python-deterministic` CI failed. **Resolved 2026-10-03:** those 17 plus 2 runtime-stale modules (`test_india_user_surfaces.py`, `test_telemetry_enrichment.py`) are quarantined in `sdk/python/conftest.py`; the suite is green.
 3. `docker-compose.yml`/`Dockerfile(.python)`/`Dockerfile` install Playwright Chromium and document `--mode fast`, `LETSFG_MAX_BROWSERS`, `LETSFG_PROXY`, `LETSFG_NO_TELEMETRY` — all for removed local connectors.
-4. `openapi.yaml`: server `…/developers/api/v1` + paths already prefixed `/api/v1/...` → double prefix; and it is a stale subset missing top-up/billing/rotate-key/discover/async/multi-search/sandbox paths documented elsewhere.
+4. `openapi.yaml`: server carried `…/developers/api/v1` **and** paths began `/api/v1/…` → every generated URL was double-prefixed. **Fixed 2026-10-03**: `servers[0].url` is now `https://letsfg.co/developers`, and `test/docs-claims.test.mjs` pins the composition. The spec is still a stale subset missing top-up/billing/rotate-key/discover/async/multi-search/sandbox paths documented elsewhere.
 5. `openapi.yaml` says API key prefix `trav_`; docs/examples use `letsfg_`.
 6. `register` guidance: AGENTS.md/SKILL.md/context7 say "never call `/agents/register`", but README, api-guide, api-onboarding, getting-started, cli-reference, mcp README and openapi's own description still present `letsfg register` as the auth path.
 7. Hotel credential: `docs/agent-guide.md` says Bearer tokens don't work for hotels; hotels.md/packages.md/AGENTS.md/context7 say either credential works.
@@ -279,7 +281,7 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 5. **Two config-path implementations** (`client.py` uses `XDG_CONFIG_HOME`; `auth.py` does not) → API key and PFS token can land in different files.
 6. **Generated `assets/ranking.js` drift** if `sdk/js/src` changes without re-running `build-ranking.py`.
 7. **Docs-as-prompt surface** (AGENTS/SKILL/context7) directly instructs agents; wrong commands (e.g. `letsfg register`, non-existent `recover`, wrong ranking sample) cause real account/behaviour problems.
-8. **Stale OpenAPI** — codegen/consumers will miss half the API; double-prefixed server URL is actively misleading.
+8. **Stale OpenAPI** — the committed spec is a subset: generated clients will miss top-up/billing/discover/sandbox paths. The double-prefixed server URL was fixed 2026-10-03 and is now guarded by `test/docs-claims.test.mjs`.
 9. **JS SDK poll drops Authorization** while MCP sends it — auth handling asymmetry.
 10. **`models.py` shadowing** — a future edit to the wrong file does nothing.
 

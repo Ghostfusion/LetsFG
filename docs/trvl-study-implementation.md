@@ -96,6 +96,16 @@ One test in `test_duration_timezone.py` appeared to fail but was **not** stale: 
 **Test:** the new test file, run in `test.yml` (add a step).
 **Risk:** medium — item 5 will likely require fixing `openapi.yaml` or the docs; that fix is a **defect** and belongs in the same change.
 
+**Resolution (2026-10-03): DONE.** `test/docs-claims.test.mjs` added (zero deps, run by `node --test`), with a new required `docs-claims` job in `.github/workflows/test.yml`. Assertions: MCP↔registry version agreement, Python `pyproject`↔`__version__`, every advertised MCP tool documented in `sdk/mcp/README.md`, `unlock_flight_offer` still marked RETIRED and still delisted, OpenAPI server+paths composing to exactly `/developers/api/v1/...`, and every local markdown link resolving.
+
+Two real defects it caught and that are now fixed in the same change:
+1. **`openapi.yaml` double-prefix.** `servers[0].url` was `https://letsfg.co/developers/api/v1` while every path key already began `/api/v1/`, so every generated URL was `.../api/v1/api/v1/...`. Server URL corrected to `https://letsfg.co/developers` (composition now yields `https://letsfg.co/developers/api/v1/agents/register`, the documented base).
+2. **Undocumented tools.** `answer_booking_question` and `load_resources` were advertised but absent from `sdk/mcp/README.md`; both rows added.
+
+Verified: `node --test test/docs-claims.test.mjs` → 6/6 pass (and 2 failures before the fixes, which is the proof the test works).
+
+**Deferred:** the `CHANGELOG.md` half of this item depends on P0.2, which is not done; the test asserts version consistency across the manifests that exist today.
+
 ### P1.4 — Nightly live probe (`live-probes.yml`) — **defer until a live test exists**
 
 **Files:** new `.github/workflows/live-probes.yml`; one opt-in live test in `sdk/python/tests/` marked `live` (the marker already exists in `pyproject.toml`).
@@ -127,6 +137,18 @@ interface ToolEnvelope<T> {
 **Acceptance:** a mocked 429 search returns `status:"rate_limited"` with a positive `retry_after_ms`; a mocked 200 with zero offers returns `status:"no_results"`, `completeness:"complete"`; a timeout returns `status:"timeout"` and never claims no results.
 **Test:** `sdk/mcp/src/index.test.ts` — three new cases against `callTool` with a stubbed `fetch`.
 **Risk:** medium — changing the text content shape affects agents; keep the existing text block and add the envelope as an additional `content` entry so old behaviour is preserved.
+
+**Resolution (2026-10-03): DONE.** New pure module `sdk/mcp/src/envelope.ts` (`ToolStatus`, `Completeness`, `envelopeForError`, `envelopeForData`, `withEnvelope`, `firstListLength`, `parseRetryAfterMs`), wired into `search_flights`, `search_hotels`, `get_flight_booking` and `get_hotel_booking` in `sdk/mcp/src/index.ts`. `readJson` now carries `retry_after_ms` parsed from `Retry-After`. `fix_hint_code` reuses the existing SDK error codes (`AUTH_INVALID`, `RATE_LIMITED`, `SUPPLIER_TIMEOUT`, `SERVICE_UNAVAILABLE`, `INVALID_PARAMETER`, `NETWORK_ERROR`, `NO_RESULTS`) rather than inventing a second taxonomy.
+
+Design choices that differ from the draft above:
+- The envelope is added to the JSON payload rather than as a second MCP content block; `withEnvelope` keeps a payload's own `status` (a booking's `booking_in_progress`) and records the verdict as `envelope_status` when the two collide, so nothing is clobbered.
+- `no_results` is only emitted when the offers list is present and empty; an uncountable payload is `partial`, never `complete`.
+
+Tests: `sdk/mcp/src/envelope.test.ts` — 18 unit cases over the pure functions plus 5 end-to-end cases that spawn the real server against a fake `letsfg.co` (200-with-offers → `ok/complete`; 200-with-none → `no_results/complete`; 429 with `Retry-After: 45` → `rate_limited` + `retry_after_ms: 45000`; 401 → `auth_required`; 500 → `failed/SERVICE_UNAVAILABLE`).
+
+Side fix in the same change: the MCP test harness spawned `npx tsx`, which is ENOENT on Windows, so every spawn-based test was red there for a reason unrelated to the code. It now spawns `process.execPath --import tsx`; the previously-skipped tests run on Windows and pass (41/41 in `sdk/mcp`).
+
+Verified: `cd sdk/mcp && npx tsc --noEmit && npm test` → 41/41 pass.
 
 ### P2.2 — `outputSchema`, `structuredContent`, audience annotations
 
