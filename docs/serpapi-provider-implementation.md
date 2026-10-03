@@ -56,9 +56,9 @@ quota-consuming requests. **Neither will now run**: the lane was declined on
 
 ### P0.1 A `live`-marked probe script and its capability profile `PROBE` `OWNER`
 
-**Files:** new `sdk/python/tests/test_serpapi_live.py` (or a script in the
-`google_checkout_live_sweep.py` neighbourhood if tests prove the wrong home), plus
-a committed capability-profile JSON.
+**Files:** new `sdk/python/tests/test_serpapi_live.py`, plus a committed
+capability-profile JSON. (The old `google_checkout_live_sweep.py` neighbourhood this
+pointed at was deleted with the lane — see §6/D-1.)
 
 **Change:** the experiments in P0.2–P0.8, each recording raw responses as fixtures.
 The script MUST:
@@ -308,31 +308,38 @@ This repo's obligation ends at the provider contract.
 
 ## 6. Dead weight and deferrals found while writing this
 
-### D-1 The unrunnable SerpApi sweep script `DEFECT` `DEFERRED`
+### D-1 The unrunnable SerpApi sweep script `DEFECT` — **FIXED 2026-10-03 (deleted)**
 
-**Evidence:** `sdk/python/google_checkout_live_sweep.py` imports
+**Evidence:** `sdk/python/google_checkout_live_sweep.py` imported
 `letsfg.connectors.serpapi_google.SerpApiGoogleConnectorClient`,
-`letsfg.connectors.checkout_engine`, and `playwright` — **all three are gone**
+`letsfg.connectors.checkout_engine`, and `playwright` — **all three gone**
 (`sdk/python/letsfg/connectors/` now holds only `__init__.py`, `airport_tz.py`,
-`auth.py`). It cannot run, and nothing else in the repo references
+`auth.py`). It could not run, and nothing else in the repo referenced
 `serpapi_google_ota`.
 
 **Also:** four committed live-sweep artifacts
 (`google_checkout_live_sweep_results.json`, `_results_v2.json`,
 `_japan_longhaul.json`, `_longhaul_london_us.json`, ≈51 KB total).
 
-**Status:** raised to the owner on 2026-10-03. The vendor decision of the same date
-(design §16 D1: **not adopted**) removes all doubt about *whether* these files are dead
-— nothing will ever run them and their connector is deleted — but not about *deleting*
-them, which is destructive and needs an explicit yes. If the answer is "delete", it is a
-one-commit defect fix; if it is "keep", the script must at least stop looking runnable
-(a header note is the minimum) and the artifacts should be marked historical rather than
-current.
+**Resolution:** all five files deleted with `git rm` in one commit, once the vendor
+decision (design §16 D1) had removed the last reason to keep them. Nothing referenced
+the script or the artifacts except this document.
 
-### D-2 No automated proof that the sweep artifacts are stale `DEFECT` `DEFERRED`
+**A sibling found by the same test.** Verifying the deletion meant scanning every
+tracked top-level `sdk/python/*.py` for imports of removed `letsfg.connectors.*`
+modules. That turned up `sdk/python/_jetstar_checkout_validate.py` (1.6 KB, tracked,
+**zero references**) — dead by the identical criterion, importing
+`letsfg.connectors.booking_base`, `checkout_engine` and `jetstar`. Deleted in the same
+commit. The scan now returns only two things: the deliberately parked test modules
+(`sdk/python/conftest.py`), and `sdk/python/letsfg/client.py`'s `try/except
+ImportError` mappings — a separate, still-open finding.
 
-Related to D-1: nothing pins those JSON files to the connector that produced them,
-so they will silently rot if kept. Deferred with D-1 — it is the same decision.
+### D-2 No automated proof that the sweep artifacts are stale `DEFECT` — **FIXED 2026-10-03 (moot)**
+
+Related to D-1: nothing pinned those JSON files to the connector that produced them, so
+they would have silently rotted if kept. The risk was removed with the files rather than
+guarded around — which is the cheaper half of that trade, and the correct one once
+nothing was going to read them.
 
 ---
 
@@ -344,7 +351,7 @@ so they will silently rot if kept. Deferred with D-1 — it is the same decision
 | O2 | ~~**Provide a key for the probe**~~ — **moot**: no probe will run. The measured misfiling (a SerpApi key sitting under `SERPER_API_KEY` in this machine's `.env`) stays recorded in design §14 as a credential-hygiene note with no consumer | ~~P0.5/P0.7~~ — cancelled | §17 |
 | O3 | ~~**Which plan tier**~~ — **moot**: no tier is purchased | ~~D12~~ — closed | §16 D12 |
 | O4 | ~~**Legal Shield**~~ — **moot**: the indemnity existed to hedge *this* lane's scraping exposure, and the lane is declined. It is no longer an available hedge for any decision — see F2 in the fli plan | ~~Procurement~~ — closed | §4.3 |
-| O5 | **Fate of the dead sweep script and its four JSON artifacts** — now unambiguous rather than open-ended: nothing will ever run `google_checkout_live_sweep.py` (its connector `serpapi_google` is deleted), and the vendor is declined. **Kept as an owner call only because deletion is destructive**, not because the answer is in doubt | D-1 | §6 above |
+| O5 | ~~**Fate of the dead sweep script and its four JSON artifacts**~~ — **resolved 2026-10-03: deleted** (`git rm`, one commit), together with a sibling dead script the verification scan turned up (`_jetstar_checkout_validate.py`). The vendor was declined, nothing referenced them, and neither script could run | ~~D-1~~ — closed | §6 above |
 
 ---
 
@@ -385,16 +392,15 @@ so they will silently rot if kept. Deferred with D-1 — it is the same decision
 | P1.1–P1.8 contract freeze + guards | **Withdrawn with the lane** | The lane-independent rules live on in the fli study and the scanner design; no code is owed here |
 | P2.1–P2.5 adapter | **Withdrawn with the lane** | O1 answered **no** |
 | P3 scanner wiring | **Out of scope** | Other repository |
-| D-1, D-2 sweep leftovers | **Deferred; O5 is now the only live item** | Raised 2026-10-03; the vendor decision has since removed any doubt about the answer |
+| D-1, D-2 sweep leftovers | **Fixed 2026-10-03 — deleted** | The script, four artifacts and the sibling `_jetstar_checkout_validate.py` were removed; the vendor decision had already made them dead by construction |
 
 ---
 
 ## 10. Order of work
 
-**Withdrawn.** The lane was declined before P1 or P2 began, and P0 stopped where it
-stopped. The only item still open is **O5** — deleting the dead sweep script and its four
-artifacts — which is independent of everything above and needs only a yes, because
-deletion is destructive.
+**Withdrawn.** The lane was declined before P1 or P2 began, P0 stopped where it stopped,
+and the dead weight has since been deleted (**O5**, §6). Every item in this plan is
+closed.
 
 For the record, the order that *would* have applied is preserved in this plan's history:
 contract freeze before adapter, adapter before wiring, with the conformance suite written

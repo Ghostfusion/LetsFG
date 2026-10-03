@@ -21,7 +21,6 @@ TARGET_SOURCE_HANDLERS = {
     "aircairo_direct": "_extract_aircairo_checkout_details",
     "aireuropa_direct": "_extract_generic_visible_checkout_details",
     "spicejet_direct": "_extract_generic_visible_checkout_details",
-    "serpapi_google": "_extract_google_checkout_details",
     "skyscanner_meta": "_extract_generic_visible_checkout_details",
     "momondo_meta": "_extract_generic_visible_checkout_details",
     "kayak_meta": "_extract_generic_visible_checkout_details",

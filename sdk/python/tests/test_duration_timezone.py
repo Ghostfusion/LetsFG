@@ -96,7 +96,8 @@ class SegmentDurationTimezoneTest(unittest.TestCase):
 
 
 class RouteDurationLayoverTest(unittest.TestCase):
-    """serpapi_google publishes the sum of flight times, dropping the layover."""
+    """The retired Google-flights connector published the sum of flight times,
+    dropping the layover."""
 
     def _bcn_beg_sof(self, total_minutes):
         return FlightRoute(

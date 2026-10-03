@@ -226,10 +226,11 @@ class FlightSegment(BaseModel):
             # which meant any other connector-supplied number survived
             # untouched, right or wrong. Measured on 110 production searches
             # (2026-08-26): 13,911 of 33,402 cross-timezone segments carried
-            # the naive local-clock difference, and 1,766 route totals from
-            # serpapi_google were the sum of flight times with every layover
-            # dropped. Where the connector already agrees this is a no-op —
-            # 94% of stored route totals matched this computation exactly.
+            # the naive local-clock difference, and 1,766 route totals from the
+            # retired Google-flights connector were the sum of flight times with
+            # every layover dropped. Where the connector already agrees this is
+            # a no-op — 94% of stored route totals matched this computation
+            # exactly.
             self.duration_seconds = computed
             return self
 
@@ -287,12 +288,12 @@ class FlightRoute(BaseModel):
             # Gate-to-gate, first departure to last arrival — layovers included
             # BY CONSTRUCTION, which is the whole point. The old guard kept any
             # connector total that was neither zero nor the naive difference,
-            # and serpapi_google's total is the sum of its segments' flight
-            # times with the connection time left out: a BCN->BEG->SOF return
-            # with a 45-minute connection was published as 3h50m instead of
-            # 4h35m, and a 15h50m two-stop as 4h. Verified against the
-            # segments' own numbers on the same production sample: this
-            # computation matched them on 99.5% of serpapi_google legs.
+            # and the retired Google-flights connector's total was the sum of
+            # its segments' flight times with the connection time left out: a
+            # BCN->BEG->SOF return with a 45-minute connection was published as
+            # 3h50m instead of 4h35m, and a 15h50m two-stop as 4h. Verified
+            # against the segments' own numbers on the same production sample:
+            # this computation matched them on 99.5% of that connector's legs.
             self.total_duration_seconds = computed
             return self
 
