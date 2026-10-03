@@ -614,6 +614,38 @@ Each maps to a P0 item in the implementation plan.
 
 ## 11. Priority and gating
 
+**The gate order is not negotiable, and one half of it is easy to miss.**
+
+```
+F2 = YES ──▶ F1 / P0 acceptance protocol ──▶ PASS → fli may be admitted as an
+    │                                         optional observation provider
+    │                                      └ FAIL → fli rejected as a provider
+    └ F2 = NO ──▶ no probe. Do not run P0.
+```
+
+The "NO" branch forbids the probe for a reason that is not procedural tidiness:
+**the probe is itself an exercise of the owned acquisition that F2 exists to
+authorize.** Querying Google's undocumented interface from our IP *is* the act in
+question — measuring it before deciding whether we are willing to do it would decide
+it by doing it.
+
+So **F2 is a business, legal and ownership decision, not a technical one.** The
+technical case for probing is already made by this study; the only open question is
+whether we are willing to own the consequences of querying an undocumented Google
+interface directly (§6.6, §9).
+
+**If F2 is NO, the study has still paid for itself** — nothing here is wasted:
+
+```
+retained   P1 contracts · failure taxonomy · the two breakers · coverage semantics ·
+           planner cost model · capability declaration · admission gate
+rejected   fli as an acquisition mechanism
+```
+
+**Once F2 is YES, this study is closed.** No further research expands it, no part of
+it is reopened, and the next artifact is the narrowly scoped P0 acceptance protocol
+([`fli-study-implementation.md`](fli-study-implementation.md) §2).
+
 | Phase | Content | Gate |
 |---|---|---|
 | **P0 — live probe** | The acceptance protocol in [`fli-study-implementation.md`](fli-study-implementation.md) §2: named cohorts A–G, explicit pass/fail per probe, and measurements for cap, cost, concurrency and health behaviour | Owner go-ahead; it makes live requests to Google under our IP |

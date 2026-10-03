@@ -31,6 +31,12 @@ D6; and a third dependency option was added to D7.
 
 ## 2. Phase P0 — acceptance protocol (`PROBE`, gating)
 
+> **Gated on F2, and the gate is not cosmetic: this protocol must not be executed
+> until F2 is answered — and "no" means it does not run at all.**
+> Executing it *is* the owned acquisition F2 authorizes: querying Google's
+> undocumented interface from our IP is the act in question, so measuring it before
+> deciding whether we want to do it would decide it by doing it (design §11).
+
 The question P0 exists to answer, in one line:
 
 > **Can fli reliably observe the specific First-Class fare universe LetsFG cares about
@@ -251,7 +257,7 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
 | F1 | **Run the P0 acceptance protocol** against Google under our IP — including whether to risk the sustained-load probe (§2.7) | All of P0 | §2 here, design §10 |
-| F2 | **Is *owned* acquisition acceptable at all**, given its legal posture — unhedged, versus SerpApi's Legal Shield from $150/mo? | D6, all of P2 | design §6.6, §9 |
+| F2 | **Is *owned* acquisition acceptable at all** — unhedged, versus SerpApi's Legal Shield from $150/mo? **A business/legal/ownership decision, not a technical one**, and it must be answered **before any request is made to Google**. YES authorizes F1/P0; **NO forbids the probe entirely** — because running it *is* the acquisition being decided | F1, D6, all of P2 | design §6.6, §9, §11 |
 | F3 | **The dependency boundary** — depend / vendor a subset / reimplement (D7 A/B/C) | P2.5 | design D7 |
 | F4 | ~~Whether to adopt the patterns now~~ — **answered 2026-10-03: yes** | — | design D1/D5 |
 | F5 | **Provider health and fallback** (D11): does fli failure automatically permit fallback to SerpApi/PFS, and which classes quarantine versus retry per search? | P2.3 | design §6.5, D11 |
@@ -293,11 +299,17 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
 ## 10. Order of work
 
 1. ~~**F4** — adopt the patterns now.~~ **Answered yes, 2026-10-03; landed.**
-2. **F2** — the ownership and legal decision, then **F5/F6** (health/fallback, and
-   whether partial coverage may alert). These are product decisions, and no amount of
-   measuring substitutes for them.
-3. **F1 → P0** — if F2 is yes, run the acceptance protocol from our own network before
-   designing anything on top of it. The repository's own history (design §3) is a
-   demonstration of what happens when an undocumented interface moves.
-4. **P2** only after P0, only behind the existing provider contract, and only past the
-   admission gate.
+2. **F2 — the gate, and it comes before every other step in this list.** It is a
+   business/legal/ownership decision (are we willing to own the consequences of
+   querying Google's undocumented interface?), not a technical one: the technical case
+   for probing is already made by the study. **YES → F1/P0. NO → P0 is not run**, and
+   the retained value is the contracts, taxonomy, breakers, coverage semantics, cost
+   model and admission gate (design §11).
+3. **F5/F6** — health/fallback routing, and whether partial coverage may alert. Product
+   decisions, needed before P2 but not before P0.
+4. **F1 → P0** — only under F2 = YES: run the acceptance protocol from our own network.
+   The repository's own history (design §3) is a demonstration of what happens when an
+   undocumented interface moves. **Once F2 is yes, do not reopen the study** — go
+   straight to the protocol.
+5. **P2** only after P0 passes, only behind the existing provider contract, and only
+   past the admission gate.
