@@ -13,6 +13,18 @@ engineering, rather than by scraping HTML or renting a third-party API.
 means its *code* is legitimately borrowable, not just its patterns. That is a
 material difference and it shapes §5.
 
+> **MIT answers one question only: may we reuse fli's code under its copyright
+> licence? It does *not* answer: may we access or automate Google's service this
+> way?** Those are separate, and the second is the one with teeth (§6.4, §9). A
+> permissive licence on the client is not permission from the service.
+
+**Terminology — "free".** Wherever this document says fli is *free*, it means
+**zero marginal API fee**: no per-search price and no subscription. It is not free
+in total cost, and this study is explicit about that (§6.4): fli converts a cash
+cost into maintenance, monitoring, breakage and legal exposure. The comparison that
+matters is not "cheap versus expensive" but **cash cost down, engineering and
+operational risk up**.
+
 **Provenance:** static probe, 2026-10-03 — the repository metadata and README, the
 published API reference (models, search), the author's project page, and the repo's
 own file tree. **No request was made to Google, and nothing was installed or run.**
@@ -32,7 +44,7 @@ We have three ways to reach fare data and are short of none of them:
 | PFS lane (own product) | first-party | free to search | ours |
 | Developer API lane (own product) | first-party | 200 free searches per booking, then $0.01 | ours |
 | SerpApi provider ([design](serpapi-provider-design.md)) | rented acquisition | $25–150+/mo, quota | theirs, hedged by Legal Shield |
-| **fli** | **owned acquisition** | **free** | **ours — and Google's** |
+| **fli** | **owned acquisition** | **zero marginal API fee** | **ours — and Google's** |
 
 fli is the only option in that table that is both free and *directly* sourced, and
 it is the only one whose weaknesses are documented with measurements rather than
@@ -208,6 +220,12 @@ Recorded, not resolved:
 - **Date-range cap.** The README says at most **93** dates per search; the API
   reference lists `MAX_DAYS_PER_SEARCH = 61`. One of them is stale; only running it
   settles which.
+
+  > **Implementation rule: no production sweep may rely on a range cap until the
+  > runtime-observed cap has been established.** The chain is forced —
+  > README says 93 · reference says 61 → **P0 determines actual behaviour** →
+  > adapter constant → test → docs. Nobody may write `MAX_DAYS = 93` from the README,
+  > and the constant must not exist in a plan until a measurement produced it.
 - **Transport documentation drift.** The README's "Search transport" section states
   the RPC is gated and the client reads the page blob, while the API reference still
   presents `BASE_URL = .../GetShoppingResults` and `BOOKING_URL = .../GetBookingResults`
@@ -255,12 +273,19 @@ charged as *failed* work.
 date, a hard cap, a measured worst case, and a memory estimate (§4.6). Our planner
 should refuse to plan a sweep whose cost it cannot state up front.
 
-**P5. A deterministic, network-free deep link per itinerary.** `build_flight_booking_url`
-turns airports + dates + flight numbers into a stable `tfs` URL, so a human can be
-handed a link without any provider call. That is a clean separation of
-*identification* from *fetching*, and it is exactly the shape our alert payloads want:
-the alert carries a link the user can act on, and it never requires the alerting path
-to call the provider again.
+**P5. A deterministic, network-free itinerary link per observation.**
+`build_flight_booking_url` turns airports + dates + flight numbers into a stable
+`tfs` URL, so a human can be handed a link without any provider call. That is a clean
+separation of *identification* from *fetching*, and it is exactly the shape our alert
+payloads want: the alert carries a link the user can act on, and it never requires the
+alerting path to call the provider again.
+
+> **Terminology is strict here: this is a *Google Flights itinerary link* (a discovery
+> deep link). It is never called a "booking link" in our code or docs.** A name that
+> reads as "this fare can be booked" would eventually be consumed as booking
+> authority, and **booking authority belongs to the PFS lane alone** (§6.5). fli
+> cannot book; a link that happens to open a page with a "Continue" button is not a
+> booking capability, and naming it one is how that distinction dies.
 
 **P6. Non-thread-safe clients get a fresh instance per request.** Their own MCP server
 and CLI do this rather than sharing state. Our provider adapters must state their
@@ -293,11 +318,24 @@ have to build (§3 lesson 3).
 
 ### 5.3 `[REJECT]` — no
 
-**P12. fli as the *primary* fare source.** Its own numbers disqualify it: ~20–45 rows,
-no multi-city, no booking options, three dropped filters, and **children/infants
-thinning results to zero in premium cabins** (§4.5). A First-Class scanner whose
-coverage silently depends on the passengers' ages is not a system we can reason about —
-and the failure is invisible without the honest-empty distinction of §4.7.
+**P12. fli is rejected as the *primary* fare source for the First-Class scanner.**
+Not "its numbers disqualify it" in general — 20–45 itineraries is not inherently
+disqualifying for every application. The argument is specific, and it is the
+conjunction that decides it:
+
+```
+First-Class scanner
+  +  coverage-sensitive alerts
+  +  parties with children/infants (measured down to 0 rows in premium cabins)
+  +  multi-city (raises)
+  +  booking options (unavailable by design)
+  +  any price context at all (absent)
+        ↓
+insufficient as the PRIMARY source for this system
+```
+
+It remains a perfectly usable Google Flights client — for a narrower question than
+ours (§6.3 makes that explicit as a capability declaration rather than an opinion).
 
 **P13. Its MCP server or CLI as product surface.** We have our own (14 advertised MCP
 tools, a CLI, two SDKs). Wrapping a second MCP server would duplicate a surface and
@@ -310,7 +348,7 @@ have causes. Any adoption must carry `coverage_mode`-style provenance (SerpApi d
 
 ---
 
-## 6. Provider comparison — what each source can and cannot answer
+## 6. Provider comparison and integration contract
 
 | Capability | PFS / Dev API (ours) | SerpApi provider | **fli** |
 |---|---|---|---|
@@ -331,9 +369,179 @@ gives *baselines and context* as well as prices. Our scanner's hardest problem i
 baseline ([`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md)
 §7.1), and fli contributes **nothing** to it — a "cheap flight today" from fli is an
 observation, not a judgement. If both ever land, their roles are complementary rather
-than competing: fli for free fresh observations and per-date sweeps, SerpApi for
-price context — with neither allowed to become the baseline (§7.1, provider-context
-rule).
+than competing: fli for fresh observations and per-date sweeps, SerpApi for price
+context — with neither allowed to become the baseline.
+
+### 6.1 Two questions, not one: acquisition and context
+
+The comparison above collapses into two different concepts, and keeping them apart is
+the whole provider architecture:
+
+```
+Acquisition   "what fares can I observe?"          ← every provider can answer this
+Context       "what does this fare mean?"          ← only some can help, and none may decide
+```
+
+> **Invariant (frozen): no provider may establish a fare baseline merely because it
+> returned a price.**
+
+That sentence exists to prevent one specific future mistake:
+
+```
+fli says $8,500  →  scanner treats $8,500 as normal  →  a false "normal" verdict
+```
+
+An observation is evidence about *a fare*; a baseline is a claim about *a population*.
+The scanner's baseline subsystem owns that claim
+([`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §7.1), and
+SerpApi's price context is stored as a provider claim for the same reason
+([`serpapi-provider-design.md`](serpapi-provider-design.md) §9/D15). A provider that
+helps with context is a *contributor to* an evaluation, never its author.
+
+### 6.2 Coverage and result state are two fields, not one
+
+The envelope already separates execution from coverage
+([`trvl-study-design.md`](trvl-study-design.md) §2.1 — the **canonical** statement of
+the pair and its legal combinations; the table below is the provider-side expansion of
+it). The pair exists because a single enum cannot express
+"we asked and got nothing" *and* "we could not ask properly" — and the difference
+between provider coverage, result count and the scanner's own conclusion is exactly
+where a false "no flights" is born:
+
+```
+coverage_mode   complete | partial | unavailable
+result_state    results | confirmed_empty | unavailable
+```
+
+| `coverage_mode` | `result_state` | Valid | Means |
+|---|---|---|---|
+| `complete` | `results` | ✓ | the declared scope was searched and produced rows |
+| `complete` | `confirmed_empty` | ✓ | the declared scope was searched and produced nothing |
+| `partial` | `results` | ✓ | rows, under narrowed or degraded coverage |
+| `partial` | `confirmed_empty` | ✓ | nothing under narrowed/degraded coverage — **not** absence |
+| `unavailable` | `unavailable` | ✓ | we learned nothing: timeout, block, parse failure |
+| `unavailable` | `results` / `confirmed_empty` | **✗** | contradictory — no usable evidence cannot carry a result |
+| `complete` | `unavailable` | **✗** | contradictory |
+
+> **Hard invariant: `no_results` is prohibited as a scanner-level conclusion when
+> provider evidence indicates coverage degradation.** `{status: no_results,
+> coverage_mode: partial}` is semantically contradictory, and an adapter allowed to
+> emit it will eventually produce "there are no flights on this route" when the
+> scanner simply could not see them (§4.5, D9).
+
+### 6.3 Capabilities are declared, not discovered by trying
+
+A coverage-sensitive scanner must ask "can this provider answer this question?"
+**before** spending anything, rather than trying and interpreting the failure (§6.2).
+Every provider therefore declares a machine-readable capability model:
+
+```yaml
+provider_capabilities:
+  specific_date_search:  true
+  date_range_search:     true        # 1 operation per date
+  multi_city:            false       # SearchUnsupportedError
+  first_class:           true
+  children:              degraded    # measured: fewer rows, sometimes zero (§4.5)
+  infants:               degraded
+  booking_options:       false       # SearchRejectedError
+  booking:               false       # never — PFS owns booking (§6.5)
+  price_context:         false       # no insight/history types in the models
+  itinerary_links:       true        # deterministic, offline (§5.1 P5)
+  server_side_filters:   partial     # three filters dropped (§4.1)
+```
+
+`degraded` is deliberately **not** `false`: children and infants work — they narrow
+coverage. The difference between "cannot" and "can, with reduced coverage" is the
+difference between a refusal and a `partial` label (§6.2). The planner consumes this
+model; it never infers capability from an error message.
+
+### 6.4 Cost is a provider capability too
+
+The planner must not assume one unit of work equals one request
+([`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §6.1):
+
+```yaml
+request_cost:
+  max_units_per_operation: <measured>   # 93 claimed by the README, 61 by the reference (§4.9)
+  requests_per_unit:       1
+  max_retry_multiplier:    <measured>   # up to 3× HTTP per unit
+  units_per_hour:          <measured>
+  requires_consent_cookie: true         # EU/EEA (§4.8)
+```
+
+Every number comes from P0 — never from a README, never from another project's formula.
+
+**Two breakers, not one, and neither copied.** A single breaker cannot answer both
+"should I keep trying dates?" and "is this provider still trustworthy?":
+
+```
+search coverage breaker   "keep trying?"     counts only evidence-bearing outcomes
+provider health breaker   "trustworthy?"     counts contract-level anomalies
+```
+
+Adopt the **concept** of a bounded sweep breaker; never adopt fli's arithmetic
+(`(5 + workers) × 3`, §4.6), which reflects *its* worker model. Encoding it would make
+our scanner architecture depend on one provider's implementation. The split is
+normative for our provider contract; the constants are ours to calibrate, and the
+planner owns only the global budget and safety limits.
+
+### 6.5 Provider health, fallback, and the absolute boundaries
+
+fli's characteristic failure is unusual enough to need its own state: **HTTP 200 with
+no expected payload** means *"Google's contract may have changed"*, not *"no flights"*.
+So a provider carries health, and the scanner routes on it instead of reading a
+degraded provider's emptiness as market information:
+
+```
+HEALTHY ──repeated parse failures──▶ DEGRADED ──canary failure──▶ UNTRUSTED ──operator──▶ DISABLED
+```
+
+Failure routing — normative, and the reason fli would be genuinely useful rather than
+"another scraper":
+
+```
+fli request
+ ├── results          → accept observation
+ ├── confirmed_empty  → accept as absence ONLY if coverage_mode = complete (§6.2)
+ ├── partial          → never conclude absence; never alert as absence (§6.2, D12)
+ ├── timeout          → per-search retry inside the provider's own budget
+ ├── parse failure     → provider-health event, NOT a search result
+ └── unavailable      → fallback permitted per D11 (owner decision)
+```
+
+**Absolute boundaries** — frozen, and the point of this section:
+
+```
+fli  ├── NEVER booking authority          (PFS owns booking; §5.1 P5)
+     ├── NEVER baseline authority          (no provider establishes a baseline; §6.1)
+     ├── NEVER implicit complete coverage  (coverage is declared and graded; §6.2)
+     └── NEVER turns a provider failure into no_results   (§6.2, D9)
+```
+
+### 6.6 Provider admission gate
+
+D6 stops being a judgement call and becomes a checklist. No provider reaches
+production until all ten hold:
+
+| # | Admission criterion |
+|---|---|
+| 1 | The target cohort works — First-Class, long-haul, specific dates |
+| 2 | Coverage semantics verified: every `coverage_mode` × `result_state` cell behaves per §6.2 |
+| 3 | Failure taxonomy verified: every class in §6.5 is distinguishable |
+| 4 | The unit cap is **measured**, not read (§4.9, §6.4) |
+| 5 | Request cost measured, including the retry multiplier |
+| 6 | Concurrency behaviour established — its client is not thread-safe (§4.10) |
+| 7 | A parser failure is detected as a provider-health event, not an empty result |
+| 8 | Itinerary-link construction verified deterministic (§5.1 P5) |
+| 9 | The provider can be **disabled without failing a scanner run** |
+| 10 | No provider result can be interpreted as booking authority (§6.5) |
+
+**The economic model, stated plainly** (this is the honest version of "free"):
+
+```
+SerpApi    cash cost ↑      engineering/maintenance ↓
+fli        cash cost ↓      engineering, monitoring, breakage and legal exposure ↑
+```
 
 ---
 
@@ -356,15 +564,19 @@ observed window, owned by Google, with no notice period.
 | # | Decision | Status |
 |---|---|---|
 | D1 | Record this study; adopt the *patterns* P1–P8 into our contracts and planner design | DECIDED |
-| D2 | Do **not** treat fli as a primary fare source (P12) | DECIDED |
+| D2 | fli is **not the primary fare source for the First-Class scanner** (P12) — the conjunction in §5.3 decides it, not a general judgement about the library | DECIDED |
 | D3 | Do **not** expose fli's MCP/CLI as product surface (P13) | DECIDED |
-| D4 | Any fli adoption carries `coverage_mode`/provenance and never inherits an implied total (P14) | DECIDED |
-| D5 | The **sweep breaker** (P2) and **loaded-empty vs never-loaded** (P1) are adopted as design requirements for the scanner's planner, independent of whether fli is ever used | DECIDED |
-| D6 | fli as a **fourth, optional, owner-gated** provider lane | **OPEN — owner** (D10 ownership) |
-| D7 | Whether to vendor the `tfs` encoder (MIT) or depend on `flights` | **OPEN — owner**, gated on D6 |
-| D8 | No adoption before the P0 live probe: nothing here is measured from *our* network, region or account | **DECIDED (gating)** |
-| D9 | Never make fli's thinning-with-children behaviour a silent coverage loss: a party with children/infants must produce `partial`, not `no_results` | DECIDED |
+| D4 | Any provider adoption carries the `coverage_mode` × `result_state` pair and its legal combinations (§6.2); no provider inherits an implied total (P14) | DECIDED |
+| D5 | The **sweep breaker** (P2) and **loaded-empty vs never-loaded** (P1) are adopted as design requirements, but as **two** breakers — coverage and provider health (§6.4/§6.5) — independent of whether fli is ever used | DECIDED |
+| D6 | fli as a **fourth, optional, owner-gated** provider lane — gated on the capability declaration (§6.3) and all ten admission criteria (§6.6), so the decision is a checklist rather than a judgement call | **OPEN — owner** (D10 ownership) |
+| D7 | Dependency boundary, three options: **(A)** depend on `flights`; **(B)** vendor only the required encoder subset under MIT; **(C)** reimplement the minimal encoding behind our own contract. **In all three, fli's internal types never appear in our provider contract** — the boundary is LetsFG → our provider interface → adapter → fli, never LetsFG → `flights.SearchFlights` → everything fli | **OPEN — owner**, gated on D6 |
+| D8 | No adoption before the P0 probe, which must be **acceptance-test-shaped** (§10, implementation plan §2): nothing here is measured from *our* network, region or account, and **no production sweep may rely on a range cap until the runtime-observed cap is established** (§4.9) | **DECIDED (gating)** |
+| D9 | Never make fli's thinning-with-children behaviour a silent coverage loss: a party with children/infants must produce `partial`, not `no_results` — and `no_results` is prohibited at scanner level whenever coverage is degraded (§6.2) | DECIDED |
 | D10 | The repository's own drifts (§4.9) are recorded as evidence *for* our `docs-claims` guard, not as a criticism to act on | DECIDED |
+| D11 | **Provider health and fallback:** does a fli failure automatically permit fallback to SerpApi/PFS, and which failure classes **quarantine** a provider versus trigger an ordinary per-search retry? (§6.5) | **OPEN — owner** |
+| D12 | **May an observation with `coverage_mode = partial` participate in an alert?** Recommendation: **no**, unless the alert itself states that its basis is partial coverage | **OPEN — owner** |
+| D13 | Provider failure classification, concurrency limits, retry policy and sweep characteristics belong to the **provider** contract; the planner owns only the global budget and safety limits (§6.4) — fli's `(5 + workers) × 3` is never encoded as a scanner rule | DECIDED |
+| D14 | The capability declaration (§6.3) and the admission gate (§6.6) are the objective prerequisites for D6; a provider that fails any of the ten is not admitted, regardless of how attractive its cost is | DECIDED |
 
 ---
 
@@ -404,9 +616,9 @@ Each maps to a P0 item in the implementation plan.
 
 | Phase | Content | Gate |
 |---|---|---|
-| **P0 — live probe** | Install `flights` in a throwaway venv; run its own live set; then measure questions 1–5 from our environment | Owner go-ahead; it makes live requests to Google under our IP |
-| **P1 — adopt the patterns** | P1, P2, P3, P4, P5, P6 into the scanner/planner contracts and their guards (docs first; guards are new test files) | Free of network; `OWNER` for new files (rule 4) |
-| **P2 — optional provider** | A fli-backed adapter behind the existing provider contract, refusing to be primary | **D6 owner decision** |
+| **P0 — live probe** | The acceptance protocol in [`fli-study-implementation.md`](fli-study-implementation.md) §2: named cohorts A–G, explicit pass/fail per probe, and measurements for cap, cost, concurrency and health behaviour | Owner go-ahead; it makes live requests to Google under our IP |
+| **P1 — adopt the patterns** | P1, P2, P3, P4, P5, P6 into the scanner/planner contracts and their guards (docs first; guards are new test files) — **done 2026-10-03**, extended by this review to *two* breakers | Free of network; `OWNER` for new files (rule 4) |
+| **P2 — optional provider** | A fli-backed **observation** provider behind the existing provider contract: capability-declared (§6.3), coverage-aware (§6.2), independently disableable, and never authoritative for booking or baseline inference (§6.5/§6.6) | **D6 owner decision**, on the admission gate |
 | **P3 — vendoring** | Only if D6 is yes and D7 says vendor | Owner |
 
 ---
@@ -433,4 +645,22 @@ Each maps to a P0 item in the implementation plan.
   loaded-empty/never-loaded distinction (§4.7), the sweep breaker economy (§4.6), the
   absence of any price-context signal (§4.4, §6), and two internal documentation
   drifts (§4.9).
-- *Pending* — the P0 live probe, and the D6/D7 owner decisions.
+- *Review #1, 2026-10-03 — study approved, implementation held*, applied. Verdict:
+  **approve the study, do not approve P2 yet**; stop expanding the factual research and
+  tighten the contracts. The ten must-change items all landed: **P12** reworded to
+  "rejected as primary *for the First-Class scanner*" with the conjunction made explicit
+  (§5.3); **coverage formalised** as `coverage_mode` × `result_state` with legal
+  combinations and a prohibition on `no_results` under degraded coverage (§6.2);
+  **two breakers** split — search coverage vs provider health (§6.4/§6.5), with fli's
+  arithmetic explicitly *not* encoded (D13); **P0 turned into acceptance tests** (plan
+  §2, cohorts A–G, per-probe pass/fail); **the 61/93 cap gated** on measurement (§4.9,
+  D8); **a capability declaration** added (§6.3); **fallback and quarantine policy**
+  added with the health state machine (§6.5); **MIT ≠ Google permission** stated in the
+  front matter; **D11** (health/fallback) and **D12** (partial coverage and alerts)
+  added as owner decisions, plus D13/D14. Also folded in: the acquisition-vs-context
+  invariant and "no provider establishes a baseline by returning a price" (§6.1); the
+  admission gate (§6.6); strict terminology — *itinerary link*, never "booking link"
+  (§5.1 P5); "zero marginal API fee" instead of "free" (front matter, §6.6); and D7
+  widened to three options with fli's types forbidden in our contract.
+- *Pending* — the P0 acceptance protocol (it needs live requests to Google from our
+  network), and the owner decisions D6, D7, D11, D12.

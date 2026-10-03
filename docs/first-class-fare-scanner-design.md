@@ -526,25 +526,51 @@ unit, `filtered_out` is a narrowed one. A scan log that says "no deals today" wh
 half its units never loaded is lying — this is §6.4's rule applied to outcomes
 rather than to plans.
 
-**The breaker** (adopted 2026-10-03, from the fli study §4.6/§4.7). A sweep that is
-being blocked must stop early rather than pay the full retry budget on every
-remaining unit:
+**And `no_results` is prohibited outright whenever coverage is degraded** (canonical
+statement: [`trvl-study-design.md`](trvl-study-design.md) §2.1): `{no_results,
+coverage_mode: partial}` is a contradiction, because it asserts an absence the
+evidence cannot support. A degraded source's emptiness is a statement about our
+visibility, not about the market.
+
+**Attempt states, not a failure count** (adopted 2026-10-03, from the fli study). A
+sweep reports epistemic states, because they are not interchangeable:
 
 ```
-breaker_bound = (grace + worker_count) × attempts_per_unit
+ATTEMPTED  ├── loaded_with_results    evidence: rows exist
+           ├── loaded_empty           evidence: the source returned nothing here
+           ├── rejected               evidence: the source refused (policy/limiter)
+           ├── timeout                NO evidence about this unit
+           ├── transport_error        NO evidence: DNS, TLS, reset
+           └── parse_error            NO evidence: we do not know what came back
 ```
 
-- **Only `provider_empty` counts against the breaker.** A timeout says nothing about
+A 93-date sweep that reports "42 failures" has thrown away the only information that
+matters. The planner reasons over the breakdown, and only the two evidence-bearing
+classes may support a conclusion about the market (§6.4).
+
+**Two breakers, because they answer different questions** — and neither is another
+project's arithmetic ([`fli-study-design.md`](fli-study-design.md) §6.4/§6.5, D13):
+
+```
+search coverage breaker   "should I keep trying units?"   counts loaded_empty and
+                                                          provider-confirmed rejection only
+provider health breaker   "is this source trustworthy?"   counts contract-level anomalies
+                                                          (e.g. a parse failure on a 200)
+```
+
+- The coverage breaker's bound is proportional to concurrency
+  (`breaker_bound = (grace + worker_count) × attempts_per_unit`) — **our** formula,
+  **our** constants.
+- **Only evidence-bearing outcomes count against it.** A timeout says nothing about
   the units not yet tried, so it must not consume their share.
-- **The breaker disarms permanently on the first successful load**, even an empty
-  one — which is exactly why it cannot catch a sweep that is mostly timeouts around
-  one lucky success.
-- So a **second, independent condition** is required: raise when nothing priced
-  **and** at least half the attempted units never loaded. A minority of failures
-  alongside real results (or alongside a confirmed-empty sweep) returns normally,
-  with the counts recorded.
-- `grace`, `attempts_per_unit` and the half-threshold are **our calibration
-  parameters**, not constants copied from another project's worker model.
+- It **disarms on the first successful load**, even an empty one — which is exactly why
+  it cannot catch a sweep that is mostly timeouts around one lucky success. So a
+  **second, independent condition** is required: raise when nothing priced **and** at
+  least half the attempted units never loaded.
+- A **parse error must not feed the coverage breaker at all**: it is evidence about the
+  *provider*, not about the route. It feeds the health breaker, which can move a source
+  to `DEGRADED` and take it out of the run without failing it (design §6.5, admission
+  criterion 9).
 
 **Unattempted work is never charged as failed work.** The budget accounting counts
 units we actually sent; a breaker that abandons a sweep records the rest as

@@ -704,6 +704,17 @@ Non-negotiable properties: every returned offer carries provenance
 holds, never ranks, never alerts; absent configuration it raises the same
 "credential missing" error shape the other lanes use.
 
+**Provider-contract additions (2026-10-03, from the fli study).** This adapter is a
+provider like any other, so it inherits the shared provider contract: a
+machine-readable **capability declaration**, the **`coverage_mode` × `result_state`**
+pair with its legal combinations (canonical statement in
+[`trvl-study-design.md`](trvl-study-design.md) §2.1), and a **health state** that can
+quarantine it without failing a scanner run
+([`fli-study-design.md`](fli-study-design.md) §6.2/§6.3/§6.5). Its own characteristic
+hazard differs — a 429 whose cause must be parsed, rather than a 200 whose payload
+never arrived — but the *routing* is identical, and the scanner must be able to disable
+this provider too without reading the resulting absence as market information.
+
 **`booking_options` is out of V1** (§5, §8). It answers "which agency sells this
 itinerary, and for how much" — a **referral/merchant** semantic domain the scanner
 does not otherwise use. The OTA price is a different product, we cannot book

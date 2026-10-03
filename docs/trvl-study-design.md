@@ -115,6 +115,27 @@ Three rules follow, and each has already been paid for somewhere else:
 This is §2.4's completeness rule one layer out: never claim more from an absence
 than the absence supports.
 
+**Coverage and result state are separate fields** (same origin, 2026-10-03). One
+enum cannot express "we asked and got nothing" *and* "we could not ask properly":
+
+```
+coverage_mode   complete | partial | unavailable
+result_state    results | confirmed_empty | unavailable
+```
+
+| `coverage_mode` | `result_state` | Valid | Means |
+|---|---|---|---|
+| `complete` | `results` / `confirmed_empty` | ✓ | the declared scope was searched |
+| `partial` | `results` / `confirmed_empty` | ✓ | narrowed or degraded coverage — an empty here is **not** absence |
+| `unavailable` | `unavailable` | ✓ | we learned nothing |
+| `unavailable` | `results` / `confirmed_empty` | **✗** | no usable evidence cannot carry a result |
+| `complete` | `unavailable` | **✗** | contradictory |
+
+> **`no_results` is prohibited whenever coverage is degraded.** An adapter allowed to
+> emit `{no_results, coverage_mode: partial}` will eventually produce "there are no
+> flights on this route" when the client simply could not see them. This table is the
+> **canonical** statement; provider designs expand it rather than restating it.
+
 **`observed_at` semantics (review #2 of this study).** One canonical definition,
 because `freshness` drives alert eligibility:
 

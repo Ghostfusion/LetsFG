@@ -14,208 +14,235 @@ point there.
 | Tag | Meaning |
 |---|---|
 | `PROBE` | A live measurement. Needs an install and/or live requests to Google under our IP. |
+| `ACCEPT` | A pass/fail criterion on a probe — the answer is yes or no, not a note. |
 | `DOCS` | Documentation only. |
 | `CODE` | New code or tests. **Requires an owner go-ahead** (rule 4). |
 | `OWNER` | A decision only the owner can take (ownership, legal exposure, dependency). |
-| `GUARD` | A test that pins a documented claim so it cannot drift silently. |
+| `GUARD` | A test that pins a contract so it cannot drift silently. |
 | `DEFERRED` | Recorded, deliberately not done yet, with the reason. |
 
-The study's value is mostly in patterns, and patterns cost nothing to adopt: **P1**
-(loaded-empty vs never-loaded), **P2** (sweep breaker), **P3** (failure classes are not
-interchangeable), **P4** (state the sweep cost before running it), **P5**
-(deterministic deep link), **P6** (per-request instances), **P7** (environment knobs),
-**P8** (golden encoders, gated live tests).
+**What review #1 changed here.** P0 became an **acceptance protocol** with named cohorts
+and pass/fail per probe instead of exploratory testing; the 93-vs-61 cap became a gate
+that blocks a production sweep rather than a curiosity; provider **capability
+declaration**, **health/quarantine** and an **admission gate** became prerequisites for
+D6; and a third dependency option was added to D7.
 
 ---
 
-## 2. Phase P0 — live probe (`PROBE`, gating)
+## 2. Phase P0 — acceptance protocol (`PROBE`, gating)
 
-Design §10 lists five unanswered questions; every one of them needs a request from
-*our* environment. This phase is the analogue of the SerpApi probe, and it is gated
-for the same reason: it consumes someone else's infrastructure under our identity.
+The question P0 exists to answer, in one line:
 
-### P0.1 Install and run its own live set in a throwaway venv `PROBE` `OWNER`
+> **Can fli reliably observe the specific First-Class fare universe LetsFG cares about
+> — and if it can, exactly what coverage guarantees may we honestly make?**
 
-**Change:** a venv outside the repo (`python -m venv`, `pip install flights`), then the
-project's own live gate (`pytest -m live --live`) against its checkout, using
-`--currency`/`--language`/`--country` set to our realistic values.
+The probes below are the smallest set that answers it. Each has a **pass criterion**;
+a probe that produces a note instead of a verdict has not been run properly.
 
-**Acceptance:** the provider's own live tests pass or fail *observably* from this
-network, with the raw output recorded. **Never** installed into the repo's environment
-and never added to `sdk/python/pyproject.toml` — that is a dependency decision (D7).
+### 2.1 Cohorts — representative failure surfaces, not dozens of cases
 
-**Risk:** Google may serve the consent interstitial or nothing at all from our IP;
-that is a finding, not a failure (#1 in design §10).
+| # | Cohort | Why it exists |
+|---|---|---|
+| **A** | JFK→LHR · 1 adult · Economy | the ordinary path; establishes a working baseline |
+| **B** | JFK→LHR · 1 adult · **First** | the target cabin — the only one that matters for admission |
+| **C** | JFK→LHR · 2 adults + 1 child · First | the measured thinning case (§4.5) — must report coverage, not emptiness |
+| **D** | JFK→LHR · 2 adults + 1 infant · First | the second thinning case; distinct because a lap infant prices differently |
+| **E** | US→EU · First · long-haul, multi-stop | the actual scanner workload, not a short-haul toy route |
+| **F** | date sweep: 30 / 61 / 93 days | establishes the real cap and the real cost |
+| **G** | a route/date known to produce no results | the negative case: must be distinguishable from a failure |
 
-### P0.2 Measure coverage in our actual cohort `PROBE`
+### 2.2 Probes and pass criteria
 
-**Change:** First-Class, long-haul, specific dates — not the provider's economy
-examples. Count rows per search, wall time, and whether results look complete.
+| # | Probe | Pass criterion |
+|---|---|---|
+| 1 | Economy search (A) | returns a parseable itinerary with a price |
+| 2 | First-Class long-haul (B, E) | returns parseable itineraries with prices |
+| 3 | Child party (C) | **coverage is reported correctly** — `partial` or an explicit thinning signal, never a bare empty |
+| 4 | Infant party (D) | same as 3, independently |
+| 5 | Empty route (G) | `confirmed_empty` is distinguished from `unavailable` |
+| 6 | Timeout simulation | **never becomes `no_results`** (§6.2) |
+| 7 | Date sweep (F) | the actually supported range is established |
+| 8 | 61 vs 93 (§4.9) | the discrepancy is resolved; the adapter constant is derived from the measurement |
+| 9 | Repeated requests | failure rate measured against the provider's own "~1 in 60" (§4.8) |
+| 10 | Itinerary link | reconstructs deterministically for a returned itinerary (§5.1 P5) |
+| 11 | EU/consent behaviour | the actual behaviour from our network is established (§4.8) |
+| 12 | TLS interception | behaviour under an intercepting proxy is established (§4.8) |
+| 13 | Parse failure | becomes a **provider error**, not an empty result (§6.5) |
+| 14 | Concurrent requests | safe adapter usage is established — its client is not thread-safe (§4.10) |
 
-**Acceptance:** a row-count distribution and latency figure we can put next to the
-SerpApi measurement (20–45 rows claimed by the provider; 16–18 measured on SerpApi for
-a similar query — see [`serpapi-provider-design.md`](serpapi-provider-design.md) §17).
+Every probe records the raw response as evidence, and every **ACCEPT** verdict cites it.
 
-### P0.3 Settle the date-range cap `PROBE`
+### 2.3 The cap gate (blocks production sweeps)
 
-**Change:** exercise a range wider than 61 and wider than 93 days; record which bound
-raises `ValueError`.
+> **No production sweep may rely on a range cap until the runtime-observed cap is
+> established** (design §4.9, D8). README says 93 · reference says 61 → probe 8
+> measures → adapter constant → test → docs. Writing `MAX_DAYS = 93` from a README is
+> forbidden, and the constant must not exist before a measurement produced it.
 
-**Acceptance:** design §4.9's contradiction is resolved with the observed bound, or it
-stays recorded as unresolved with the failing input named.
+### 2.4 Cost and capability measurement
 
-### P0.4 Measure the sweep economics ourselves `PROBE`
+**Change:** measure what §6.4 of the design calls `request_cost`, per cohort F:
+`max_units_per_operation`, `requests_per_unit`, `max_retry_multiplier`,
+`units_per_hour`, wall time and peak memory. Choose concurrency deliberately — not the
+provider's default 10 workers.
 
-**Change:** a 30-date and a 93-date sweep, recording page fetches, HTTP requests (after
-retries), wall time, and peak memory against the provider's claimed 42 fetches /
-~135 requests / ~4 s / several hundred MB (§4.6).
+**ACCEPT:** five cost numbers and a capability block that can be written into the
+provider declaration (§6.3) without a single `<measured>` placeholder left.
 
-**Acceptance:** numbers we can plan against, at a concurrency we choose deliberately
-rather than the provider's default 10 workers.
+### 2.5 Health and quarantine behaviour
 
-### P0.5 Sustained-load behaviour `PROBE` `OWNER`
+**Change:** characterise the failure classes so that §6.5's routing can be implemented
+rather than guessed — in particular, confirm that a 200-with-no-payload is detectable as
+a *contract* anomaly rather than indistinguishable from an empty result.
+
+**ACCEPT:** each class in design §6.5 is reproducible on demand (fault injection or an
+observed instance), and the health transition it maps to is named.
+
+### 2.6 Install and run its own live set in a throwaway venv `PROBE` `OWNER`
+
+**Change:** a venv **outside the repo** (`python -m venv`, `pip install flights`), then
+the project's own live gate (`pytest -m live --live`) against its checkout, with locale
+parameters set to our realistic values.
+
+**ACCEPT:** the live set passes or fails observably from this network, with raw output
+recorded. **Never** installed into the repo's environment and never added to
+`sdk/python/pyproject.toml` — that is a dependency decision (D7).
+
+**Risk:** Google may serve the consent interstitial or nothing at all from our IP. That
+is a finding, not a failure.
+
+### 2.7 Sustained-load behaviour `PROBE` `OWNER`
 
 **Change:** determine what Google does to a client that sustains the allowed rate.
-
-**Acceptance:** a recorded answer, *or* an explicit decision not to find out (this is
-the probe that could get an IP throttled; it needs its own go-ahead, exactly like the
-SerpApi 429 experiment).
-
-### P0.6 Inspect the blob for price-context fields `PROBE`
-
-**Change:** check whether the inline `AF_initDataCallback` payload carries a price
-graph/history that fli's models do not surface (§10 question 5).
-
-**Acceptance:** yes/no with the raw field path, or "not determined". If yes, it is the
-only way fli could ever contribute to the baseline problem — and it would still be a
-**provider price context**, never our baseline (SerpApi design §9/D15).
+**ACCEPT:** a recorded answer, *or* an explicit decision not to find out. This is the
+probe that could get an IP throttled, so it needs its own go-ahead — exactly like the
+SerpApi 429 experiment.
 
 ---
 
-## 3. Phase P1 — adopt the patterns (**done**, 2026-10-03, docs only)
+## 3. Phase P1 — adopt the patterns (**done**, 2026-10-03, docs only; extended by review #1)
 
 Independent of D6: these improve our design whatever we decide about fli.
 
-**Status: the four items landed as documentation** in the documents that own the
-contracts — the empty-reason taxonomy in [`trvl-study-design.md`](trvl-study-design.md)
-§2.1 (the envelope's owner), and the planner/alert rules in
+**Status: landed as documentation** — the empty-reason taxonomy in
+[`trvl-study-design.md`](trvl-study-design.md) §2.1 (the envelope's owner), and the
+planner/alert rules in
 [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §6.1, §6.7,
-§8 and decision 8 of §12.
+§8 and decision 8 of §12. Review #1 extended the adoption to:
 
-**One deliberate deviation from the plan as written:** no `GUARD` test landed with
-them, because there is no behaviour yet to test. Asserting that three empty-reasons
-are "distinct in the envelope" when the envelope does not implement them would be a
-test of documentation prose — which this repository's own verification rules forbid
-("never test source text"). The guards land **with the implementations** (the client
-envelope in this repo, the planner in the scanner repo), and each is listed below
-against the item it belongs to. Recording the deviation is the point: a guard written
-now would have looked like progress and proved nothing.
+- **two breakers instead of one** — search coverage vs provider health (design §6.4/§6.5),
+  and fli's `(5 + workers) × 3` explicitly *not* encoded as a scanner rule (D13);
+- the **attempt-state taxonomy** at planner level (`loaded_with_results` ·
+  `loaded_empty` · `rejected` · `timeout` · `transport_error` · `parse_error`), so a
+  sweep reports epistemic states rather than a failure count — a timeout is not
+  evidence of absence, and a parse error means *we do not know what the provider
+  returned*;
+- the **prohibition on `no_results` under degraded coverage** (design §6.2, D9);
+- **capability declarations** (design §6.3) as the interface the planner consumes.
 
-### P1.1 Loaded-empty vs never-loaded, as a contract — **done (docs)**
+**No `GUARD` test landed with any of them**, deliberately: there is no behaviour yet to
+test, and asserting that three empty-reasons are "distinct" in an envelope that does not
+implement them is a test of documentation prose — which this repository's own
+verification rules forbid. Guards land **with the implementations** that support them,
+and each is listed against its item below.
 
-**Files:** [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md)
-§6.3/§6.6 and §9; envelope reference in
-[`trvl-study-design.md`](trvl-study-design.md) §2.1; later a guard.
+### P1.1 Loaded-empty vs never-loaded — **done (docs)**
+Envelope contract: [`trvl-study-design.md`](trvl-study-design.md) §2.1. Scanner
+application: §6.7. **The `GUARD` lands with the envelope implementation.**
 
-**Change:** state the provider-side obligation from study §4.5/§4.7 — the *reason* an
-empty result occurred (page served with zero rows · request never returned a page ·
-our own filters removed rows the provider did return) is a recorded fact, not an
-inference from emptiness. A party containing a child or infant may never be reported as
-`no_results` when the provider thins results client-side (design D9).
-
-**Acceptance:** design text updated — **done**. The `GUARD` test (three reasons
-distinguishable, no collapse into one) lands **with the envelope implementation that
-supports it**, not before; it is listed as a client-envelope item, not a docs item.
-
-**Precedent:** this is the same rule as our existing `no_results` ≠ `timeout`, applied
-one layer out.
-
-### P1.2 A sweep breaker with stated arithmetic — **done (docs)**
-
-**Files:** scanner §6 (planner), §6.6 (budget).
-
-**Change:** adopt the shape of study §4.6/§4.7 — a bound proportional to workers, a
-disarm on the first successful load, a separate raise when *mostly timeouts around
-isolated successes*, and the rule that unattempted work is never charged as failed
-work (P3).
-
-**Acceptance:** the planner can describe, before it runs, what it will do when a
-provider is blocked, and the description matches the breaker's real arithmetic.
+### P1.2 Sweep breaker, split in two — **done (docs)**
+Scanner §6.7 (coverage breaker) and design §6.4/§6.5 (the split, plus the provider's
+own health breaker). **The planner guard lands with the planner.**
 
 ### P1.3 State the sweep cost before running it — **done (docs)**
+Scanner §6.1: five cost dimensions including the retry multiplier and peak memory, with
+the refusal condition; design §6.4 moves the per-provider numbers into a capability
+block so no provider's arithmetic becomes a scanner rule.
 
-**Change:** the planner must be able to state fetches, requests-after-retries, wall
-time and memory for a proposed fan-out, refusing plans whose cost it cannot state
-(P4) — the same discipline as the SerpApi budget ledger, applied to fan-out.
-
-**Acceptance:** the planner section names the cost model and the refusal condition.
-
-### P1.4 Deterministic deep links in alert payloads — **recorded (docs), still deferred**
-
-**Change:** where an alert needs a "go look at this itinerary" link, prefer a link
-built locally from airports + dates + flight numbers (study P5) over one that requires
-another provider call. Deferred until an alert path exists to carry it (scanner §8).
-
-**Acceptance:** recorded as a design requirement with the blocker named, not as a
-half-built link builder.
+### P1.4 Deterministic itinerary links — **recorded (docs), still deferred**
+Requirement in scanner §8 (never fetched at alert time), blocker named: there is no
+alert path yet to carry it, and the builder belongs with provider work.
 
 ---
 
-## 4. Phase P2 — optional provider (`CODE`, `OWNER`, gated on D6)
+## 4. Phase P2 — optional provider (`CODE`, `OWNER`, gated on D6 + the admission gate)
 
-Only if the owner decides fli is a lane we own. Nothing here is designed in detail
-until then, deliberately: the ownership question comes first, and the study's job was
-to make that question answerable rather than to presume its answer.
+A fli-backed **observation** provider behind the existing provider contract:
+capability-declared, coverage-aware, independently disableable, and never authoritative
+for booking or baseline inference (design §6.5/§6.6).
 
-### P2.1 Adapter behind the existing provider contract `CODE` `OWNER`
+### P2.1 The admission gate is the acceptance criterion `ACCEPT`
 
-**Files:** an adapter module beside the SerpApi one; the provider registry.
+All ten criteria in design §6.6, verified against P0 evidence. **A provider that fails
+any one is not admitted**, however attractive its cost — that is the point of turning D6
+into a checklist.
 
-**Change:** implement the same interface and provenance as the SerpApi adapter
-(design §6 of that document): `request_kind`, `coverage_mode`, minimised query,
-per-request instance (study P6). Status ceiling: `observed`; **no** `verified` claim
-without a comparison, **no** baseline contribution, **never** primary (P12).
+### P2.2 Capability declaration and coverage provenance `CODE`
 
-**Acceptance:** the shared provider conformance suite (SerpApi plan P2.5) passes on the
-new adapter; a test proves it cannot be selected as the primary source, and that a
-children/infants party yields `partial`, never `no_results`.
+**Files:** the provider contract module beside the SerpApi adapter; the provider registry.
 
-### P2.2 Dependency or vendoring `OWNER`
+**Change:** implement `provider_capabilities` (design §6.3), the
+`coverage_mode` × `result_state` pair with its legal combinations (design §6.2), the
+failure routing of design §6.5, and per-request instances (its client is not
+thread-safe).
 
-**Change:** decide between depending on `flights` and vendoring the MIT encoder
-(study P10/D7).
+**ACCEPT:** the shared provider conformance suite (SerpApi plan P2.5) passes; a
+test proves the illegal combinations are unrepresentable; a child/infant party yields
+`partial`; and the adapter **cannot be selected as primary**.
 
-**Acceptance:** a recorded decision; if "depend", the version is pinned with the usual
-supply-chain checks, and the **name collision is handled explicitly** — the PyPI
-distribution is `flights`, while `fli` on PyPI is an unrelated project (a real
-dependency-confusion hazard, not a hypothetical one).
+### P2.3 Health, quarantine and fallback `CODE` `OWNER`
+
+**Change:** the health state machine (`HEALTHY → DEGRADED → UNTRUSTED → DISABLED`), the
+quarantine triggers, and the fallback routing — **on the owner's answer to D11**, since
+whether a fli failure automatically falls back to SerpApi/PFS is a product decision with
+cost consequences, not an implementation detail.
+
+**ACCEPT:** with the provider forced to `DISABLED`, a scanner run completes without
+failure (admission criterion 9) and reports the degradation — it does not silently
+return fewer results.
+
+### P2.4 Alert eligibility for partial coverage `CODE` `OWNER`
+
+**Change:** enforce the owner's answer to D12. The recommendation on the table is **no
+alerts on `coverage_mode = partial`** unless the alert states its basis is partial.
+
+**ACCEPT:** a test that a partial-coverage observation cannot generate an alert, or
+that it generates one carrying the explicit partial-coverage disclosure — whichever the
+owner decides.
+
+### P2.5 Dependency boundary `OWNER`
+
+**Change:** choose among the three options in design D7 — **(A)** depend on `flights`,
+**(B)** vendor only the required encoder subset under MIT, **(C)** reimplement the
+minimal encoding behind our own contract — with the constraint that applies to all
+three: **fli's internal types never appear in our provider contract.**
+
+**ACCEPT:** a recorded decision; if any dependency is taken, the version is pinned and
+the **name collision is handled explicitly** — the PyPI distribution is `flights`, while
+`fli` on PyPI is an unrelated project (a real dependency-confusion hazard).
 
 ---
 
 ## 5. Phase P3 — out of scope
 
-Scanner wiring (planner → scheduler → observation store → verification → alerting)
-belongs to the scanner repository. This repo's obligation ends at the provider
+Scanner wiring (planner → provider selection → observation store → verification →
+alerting) belongs to the scanner repository. This repo's obligation ends at the provider
 contract, as with the SerpApi plan.
 
 ---
 
 ## 6. Observations recorded, not acted on
 
-### O-1 The `live-canary` idea `DEFERRED`
-
-The subject repository runs a scheduled workflow that watches for Google-side breakage
-— a canary for an interface someone else controls. Our own provider contract will face
-the same problem if we ever own acquisition, and the SerpApi plan's P0 is the
-same idea in manual form. Recorded as a pattern to reuse; deferred because it needs a
-live provider to watch.
+### O-1 The canary pattern `DEFERRED`
+The subject repository runs a scheduled workflow that watches for Google-side breakage.
+Our provider contract faces the same problem the moment we own acquisition, and the
+provider-health state machine (design §6.5) is the in-process half of it. A scheduled
+canary is the other half; deferred until a provider exists to watch.
 
 ### O-2 Its own documentation drift `DEFERRED`
-
-Study §4.9: the README's transport section and the API reference disagree, and the
-date cap is stated two ways. Nothing to fix in our repo — recorded because it is
-evidence *for* `test/docs-claims.test.mjs`, which exists to make exactly that drift
-fail CI. No action beyond citation.
+Design §4.9: the README's transport section and the API reference disagree, and the date
+cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for*
+`test/docs-claims.test.mjs`. No action beyond citation.
 
 ---
 
@@ -223,10 +250,12 @@ fail CI. No action beyond citation.
 
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
-| F1 | **Run the P0 probe** against Google under our IP, including whether to risk P0.5's sustained-load test | All of P0 | §10, §11 |
-| F2 | **Is direct acquisition (any owned scraper, fli or otherwise) acceptable** given its legal posture — unhedged, versus SerpApi's Legal Shield from $150/mo? | D6, all of P2 | §6, §9 |
-| F3 | **Depend on `flights` or vendor the encoder**, if F2 is yes | P2.2 | D7 |
-| F4 | ~~Whether the adopt-the-patterns work (P1) should proceed now~~ — **answered 2026-10-03: yes**, adopted as documentation immediately (P1.1–P1.3 in the scanner and trvl-study contracts; P1.4 recorded and deferred); guards deferred to their implementations | — | D1/D5 |
+| F1 | **Run the P0 acceptance protocol** against Google under our IP — including whether to risk the sustained-load probe (§2.7) | All of P0 | §2 here, design §10 |
+| F2 | **Is *owned* acquisition acceptable at all**, given its legal posture — unhedged, versus SerpApi's Legal Shield from $150/mo? | D6, all of P2 | design §6.6, §9 |
+| F3 | **The dependency boundary** — depend / vendor a subset / reimplement (D7 A/B/C) | P2.5 | design D7 |
+| F4 | ~~Whether to adopt the patterns now~~ — **answered 2026-10-03: yes** | — | design D1/D5 |
+| F5 | **Provider health and fallback** (D11): does fli failure automatically permit fallback to SerpApi/PFS, and which classes quarantine versus retry per search? | P2.3 | design §6.5, D11 |
+| F6 | **May partial-coverage observations generate alerts** (D12)? Recommendation: no, unless the alert discloses partial coverage | P2.4 | design §6.2, D12 |
 
 ---
 
@@ -234,18 +263,17 @@ fail CI. No action beyond citation.
 
 | Item | Design ref | Depends on | Verification |
 |---|---|---|---|
-| P0.1 | §10.1, §4.8 | F1 | live-set output recorded from our network |
-| P0.2 | §4.4, §6 | F1 | row-count + latency vs the SerpApi measurement |
-| P0.3 | §4.9 | F1 | the bound raising `ValueError` is identified |
-| P0.4 | §4.6 | F1 | fetches/requests/time/memory measured |
-| P0.5 | §4.6, §10.4 | F1 | answer recorded, or explicitly declined |
-| P0.6 | §4.4, §10.5 | F1 | field path, or "not determined" |
-| P1.1 | §4.5, §4.7, D9 | — | **docs done** (trvl study §2.1 + scanner §6.7); guard lands with the envelope implementation |
-| P1.2 | §4.6, §4.7 | — | **docs done** (scanner §6.7); planner guard with the planner |
-| P1.3 | §4.6 | — | **docs done** (scanner §6.1, five cost dimensions + refusal) |
-| P1.4 | §5.1 P5 | alert path | **requirement recorded** (scanner §8), blocker named |
-| P2.1 | §5.3 P12, D4 | F2, D6 | conformance suite; cannot be primary; child/infant `partial` |
-| P2.2 | §5.2 P10, D7 | F3 | decision recorded; name collision handled |
+| P0 cohorts A–G | §4.5, §6.3 | F1 | each cohort produces its pass criterion |
+| P0.1–P0.14 | §4.8, §4.9, §4.10, §10 | F1 | 14 accept verdicts, each citing raw evidence |
+| P0 cap gate | §4.9, D8 | probe 8 | adapter constant derived from measurement |
+| P0 cost/capability | §6.4 | probe 7 | no `<measured>` placeholder left in §6.3/§6.4 |
+| P0 health classes | §6.5 | probe 13 | every class reproducible and named |
+| P1.1–P1.4 | §5.1 P1–P6 | — | **docs done**; guards land with their implementations |
+| P2.1 admission | §6.6, D14 | F1, F2 | all ten criteria pass on evidence |
+| P2.2 capability + coverage | §6.2, §6.3 | D6 | conformance suite; illegal states unrepresentable; child/infant `partial` |
+| P2.3 health + fallback | §6.5, D11 | F5 | provider disabled ⇒ run completes and reports degradation |
+| P2.4 partial-coverage alerts | §6.2, D12 | F6 | partial cannot alert (or alerts with disclosure) |
+| P2.5 dependency boundary | D7 | F3 | recorded decision; name collision handled |
 
 ---
 
@@ -253,10 +281,10 @@ fail CI. No action beyond citation.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Study documents | **Done** | This plan and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
-| P0.1–P0.6 live probe | **Not started** | Needs F1; no request has been made to Google |
-| P1.1–P1.4 pattern adoption | **Done (docs) 2026-10-03** | Empty-reason taxonomy in `trvl-study-design.md` §2.1; cost model, breaker and accounting in scanner §6.1/§6.7; absence and link rules in scanner §8; decision 8 of scanner §12. Guards deliberately not written yet — no behaviour exists to test |
-| P2.1–P2.2 provider / vendoring | **Not started** | Needs F2 and F3 |
+| Study documents (incl. review #1 revision) | **Done** | This plan and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
+| P0 acceptance protocol | **Not started** | Needs F1; **no request has been made to Google** |
+| P1.1–P1.4 pattern adoption | **Done (docs) 2026-10-03** | Empty-reason taxonomy in `trvl-study-design.md` §2.1; cost model, two breakers and accounting in scanner §6.1/§6.7; absence and link rules in scanner §8; decision 8 of scanner §12. Guards deliberately not written — no behaviour exists to test |
+| P2.1–P2.5 provider / health / dependency | **Not started** | Needs F2, F5, F6 (and F3 for dependency) |
 | P3 scanner wiring | **Out of scope** | Other repository |
 | O-1, O-2 | **Deferred** | Recorded above with reasons |
 
@@ -264,11 +292,12 @@ fail CI. No action beyond citation.
 
 ## 10. Order of work
 
-1. ~~**F4** — decide whether to adopt the patterns now.~~ **Answered yes, 2026-10-03;
-   landed as documentation.** Next: **F2** — the ownership and legal decision.
-   Everything about fli as a *provider* waits there, and no amount of measuring
-   substitutes for it.
-2. **F1 → P0** — if F2 is yes, probe from our own network before designing anything on
-   top of it; the repository's own history (§3) is a demonstration of what happens when
-   an undocumented interface moves.
-3. **P2** only after P0, and only behind the existing provider contract.
+1. ~~**F4** — adopt the patterns now.~~ **Answered yes, 2026-10-03; landed.**
+2. **F2** — the ownership and legal decision, then **F5/F6** (health/fallback, and
+   whether partial coverage may alert). These are product decisions, and no amount of
+   measuring substitutes for them.
+3. **F1 → P0** — if F2 is yes, run the acceptance protocol from our own network before
+   designing anything on top of it. The repository's own history (design §3) is a
+   demonstration of what happens when an undocumented interface moves.
+4. **P2** only after P0, only behind the existing provider contract, and only past the
+   admission gate.
