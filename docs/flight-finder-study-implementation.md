@@ -175,23 +175,30 @@ to us: their 71/75 is the model, our 4/14 is the gap.
 
 ---
 
-### P1.3 Publish the limiter failure direction `OWNER` (documentation half is `DOCS`)
+### P1.3 Determine the limiter failure contract `OWNER` → **decided: measure, do not guess**
 
-Design P8/D10.
+Design P8/D10. **Resolved as a decision on 2026-10-03 (trvl study §6, Q8):** this
+is a **measurement task**, not a documentation tidy-up, and it is the **P0 blocker**
+for the fare scanner's scheduler — "the Search Scheduler cannot be finalised until
+the rate-limit failure contract is established by experiment."
 
-**Evidence.** Our docs publish quotas (10/10 min, 30/hour, 100/day) but never
-say whether the limiter fails open or closed; the probe makes this an explicit,
-per-endpoint decision (fail-closed on `community/register`, fail-open on
-`parse`).
+**Evidence.** Our docs publish quotas (10/10 min, 30/hour, 100/day) but never say
+what happens when they are crossed; the probe makes failure direction an explicit,
+per-endpoint decision (fail-closed on `community/register`, fail-open on `parse`).
 
-**Change.** Determine the current behaviour of the quota limiter (server side,
-outside this repo) and document the intended direction per operation in
-`docs/api-*.md` + `AGENTS.md`. If the intent is "fail closed", that is a server
-behaviour change — owner decision, not an SDK edit.
+**Change.** Run a controlled probe against the live API and record: the status
+returned on crossing the limit; whether `Retry-After` is supplied; **whether a
+rejected request still consumes quota**; the limit's scope (key/account/IP/endpoint);
+whether concurrency counts separately; behaviour after repeated violations;
+consistency across `/flights/search`, `/flights/discover`, `/flights/multi-search`;
+and whether polling `/api/results/{id}` draws on the search quota or a separate
+request quota. Then document the measured contract in `docs/api-*.md` +
+`AGENTS.md`, and state the intended direction per operation. Until it is measured,
+`rate_limit_failure_behavior = UNKNOWN` and no scheduler logic may assume one.
 
-**Acceptance.** Each rate-limited operation in the docs names its failure
-direction; an agent reading only the docs can predict what happens during a
-limiter outage.
+**Acceptance.** Each rate-limited operation in the docs names its measured failure
+behaviour, and the scanner's scheduler encodes only measured behaviour. Full
+question list and probe recipe: trvl study §6 (Q8).
 
 ---
 
@@ -377,7 +384,7 @@ under working-agreement rule 3 (fix on the spot; record genuine deferrals).
 | P0.3 duplicate Python job | **Done** | `.github/workflows/sdk-tests.yml` deleted: it ran one module (`test_public_offer_masking.py`) that `test.yml`'s required `python-deterministic` job already runs as part of `pytest -m "not live"` (32 collected), and its comments about missing connector deps were stale. |
 | P1.1 lane routes + credential resolver | **Partly done** | The functional defect is fixed: MCP `book_flight` (API-key lane) now posts to `/developers/api/v1/flights/book`, and `get_flight_booking` polls `/developers/api/v1/flights/bookings/{id}` on that lane instead of the PFS route. Both pinned by a new test that records the paths the server actually calls. The single-resolver refactor of all 16 `LETSFG_*` read sites is **not** done — it is structural, and the drift it prevents is now covered by the route tests instead. |
 | P1.2 envelope conformance | **Done** | 11 of 14 advertised tools return `status` + `completeness` on API results; the 3 exceptions (`connect_payment`, `get_agent_profile` on the PFS lane, `load_resources`) are local refusals/static text and are asserted as such. The test enumerates `tools/list`, so a new tool must be classified. |
-| P1.3 limiter failure direction | **Blocked (owner/server)** | The limiter lives server-side; documenting a direction we cannot observe would be a guess. Recorded, not fabricated. |
+| P1.3 limiter failure direction | **Decided 2026-10-03 — measure, don't guess** | Owner decision (trvl study §6, Q8): the failure contract must be established by a controlled live probe (status, `Retry-After`, whether a rejected request consumes quota, limit scope, concurrency, repeat violations, per-endpoint consistency, polling quota). It is the **P0 blocker** for the fare scanner's scheduler; until measured, `rate_limit_failure_behavior = UNKNOWN`. |
 | P0.2 `CHANGELOG.md` | **Not done** | Not a defect (absence of a file), and rule 4 scopes this pass to defect fixes. It remains the top documentation item, and it unblocks the deferred version↔changelog assertion. |
 | Further defects fixed this pass (found while working) | **Done** | `sdk/python/letsfg/models.py` (unreachable behind the `models/` package) and `system_info.py` (stub for a removed architecture) deleted; `config.py` made the live resolver; MCP `VERSION` corrected from `1.3.1` to the package version and now asserted; committed `*.tgz` build artifacts deleted and `*.tgz` ignored; `sdk/python/letsfg/models/flights.py` docstring route corrected; `SECURITY.md` version table + credential model corrected and asserted; `docs/TESTING.md` rewritten around what actually runs here; `CONTRIBUTING.md` commands corrected; Playwright and its system libraries removed from all three container files with the dead knobs. |
 
@@ -400,7 +407,8 @@ cd sdk/python && pytest -m "not live"                                 # 103 pass
 2. **P1.1 (rest)** — collapse the 16 `LETSFG_*` read sites into one resolver per
    SDK. Structural, so it needs an owner nod; the drift it would prevent is
    already covered by the lane-route tests.
-3. **P1.3** — record the limiter failure direction once the server side is known.
+3. **P1.3** — establish the limiter's failure contract by measurement (the Q8 probe),
+   then document it. Nothing downstream may assume it beforehand.
 4. Then the `OWNER` items in the order the owner prefers; **P2.1** (PR/issue
    templates) and **P2.2** (Dependabot ecosystems) are the cheapest process wins,
    and **D4** (secret scanning) needs the placeholder-hygiene sweep first.

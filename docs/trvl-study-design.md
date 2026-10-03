@@ -127,7 +127,7 @@ A one-source $5,500 result and a seven-source $5,500 result are not the same cla
 **Staged, per owner review (2026-10-03)** — do not ship the elegant part before the load-bearing part:
 1. **P0 — `outputSchema` + `structuredContent`.** The contract an agent codes against.
 2. **P1 — content separation** (summary for the user, JSON for the assistant).
-3. **P2 — audience/priority annotations**, only after the client matrix (Claude, Cursor, Windsurf, ChatGPT) is validated against a real payload. Annotations are presentation, and our own open question admits they are untested here; an unvalidated annotation is a compatibility risk with no upside yet.
+3. **P2 — audience/priority annotations**, only after the client matrix (Claude, Cursor, Windsurf, ChatGPT) is validated against a real payload. Annotations are presentation, and the Q2 answer in §6 admits they are untested here; an unvalidated annotation is a compatibility risk with no upside yet.
 
 **`structuredContent` is canonical; text is a rendering (review #2 of this study).**
 
@@ -140,6 +140,13 @@ says "cheapest is $412" while the structured payload shows that $412 came from a
 `partial` search is exactly how a client ends up asserting something its own
 contract denies. The invariant also decides arguments in advance — when the two
 disagree, the structured payload is right and the text is a bug.
+
+**Acceptance criterion for the annotations stage (Q2 decision, §6): client
+incompatibility must not break the basic tool result.** If a client mishandles an
+annotation, the search result must still be usable — annotations are presentation,
+so an unverified one is a risk with no upside yet. Protocol behaviour is covered by
+the spawn-based MCP harness; presentation needs one manual check per client, which a
+harness cannot do.
 
 ### 2.3 `tools/list` size control and callable-but-unadvertised tools — `[ADOPT, opt-in]`
 
@@ -160,6 +167,14 @@ disagree, the structured payload is right and the text is a bug.
 **LetsFG gap:** the MCP guide tells the agent to say "no flights found"; nothing stops it asserting "the cheapest" after a partial backend response. Our split-ticket late-merge wait is a partial analogue (we already gate on `split_ticket_pending`/`gf_enrich_pending`).
 
 **Target design:** the §2.1 envelope gates the language. `no_results` may be stated as fact; `partial` must be narrated; `blocked` must not be. If the server exposes per-source counts, carry them; otherwise carry `completeness` from the search status.
+
+**And what the client may claim without evidence (Q1 decision, §6):** a successful
+response is not evidence that every backend was queried, so the client must not
+invent provider-level failures — and must not claim `complete` on the strength of a
+200 alone. A payload whose list is present and empty may be reported as
+`no_results`/`complete`; an uncountable one is `partial`. That is already the shipped
+behaviour (`envelopeForData(null)` → `ok`/`partial` in `sdk/mcp/src/envelope.ts`),
+so the decision records the implementation rather than proposing a change to it.
 
 ### 2.5 Local, redacted, non-blocking health log — `[DEFER]`
 
@@ -306,6 +321,7 @@ Two guards keep the pen from becoming permanent:
 | D10 | **Architectural principle (permanent invariant):** borrow trvl's client-side contracts and engineering patterns; never reproduce its provider/search-engine architecture unless LetsFG assumes ownership of provider acquisition | Keeps the client a client. Prevents "trvl has a nice feature, let's port it" from silently importing an engine we do not maintain. The ownership model in §7 is its concrete form | LetsFG explicitly takes ownership of provider acquisition |
 | D11 | **Boundary:** travel observation data (fares, price history, availability) is *domain data*, not telemetry — it belongs to the scanner layer's store, never to a health log | A system of record must be named as one; fare history behind `health.jsonl` is undiscoverable and unqueryable | — |
 | D12 | Carry **verified-vs-indicative** price semantics in the contract, but put the *policy* (what may alert) in the scanner, not in the client | The client can only report what it observed; "is this good enough to act on" is a product decision with a different owner | — |
+| D13 | **One architecture surface:** extend `docs/architecture-guide.md` and link the studies from it; do **not** add a root `DESIGN.md` | A second architecture document makes "which one is authoritative?" a per-reader judgement, which is exactly the ambiguity the docs-claims test exists to prevent | An architecture-guide.md rewrite too large to review in one change |
 
 ---
 
@@ -336,46 +352,211 @@ CI
 
 ---
 
-## 6. Open questions
+## 6. Decisions on the client/API questions (Q1–Q11)
 
-**Client/contract questions (lower value — mostly resolved or cheap to resolve):**
+These began as open questions. The owner decided all eleven on 2026-10-03 from the
+evidence already in this study — the document should not keep calling something a
+"work queue" once the evidence supports a decision. **Q8 is the one exception and
+stays OPEN**, because it needs a live experiment rather than a judgement.
 
-- Q1 Does the hosted `letsfg.co` search response expose per-source counts/statuses, or must the client synthesise `completeness` from the search `status`? Resolve by inspecting a live `/api/results/{id}` payload.
-- Q2 Will MCP clients in our matrix (Claude, Cursor, Windsurf, ChatGPT) accept `structuredContent` + annotations without degrading? Resolve with the existing `sdk/mcp` spawn-based test harness plus one manual client check. This gates D2's P1/P2 stages only.
-- Q3 ~~Is the `openapi.yaml` double-prefix a spec error or a server quirk?~~ **Answered and fixed 2026-10-03:** the server URL and the path keys both carried `/api/v1`; the spec was wrong, and `test/docs-claims.test.mjs` now pins the composition.
-- Q4 Do we want a `DESIGN.md` at root when `docs/architecture-guide.md` already exists? Prefer extending the existing doc and linking, to avoid a third architecture surface. `[INFERENCE]`
-
-**Priority (review #2 of this study).** Not every question is equally load-bearing,
-and one of them blocks the scanner outright:
-
-| Question | Priority | Why |
-|---|---|---|
-| **Q8** rate-limit failure behaviour | **P0 scanner prerequisite** | A continuously running scheduler cannot be written until we know what crossing the limit does: `429`? queued? hard failure? `Retry-After`? account suspension? **quota consumed by a rejected search?** |
-| Q1 source status | P1 | Decides whether `completeness` is carried or synthesised |
-| Q9 fare identity | P1 | Decides whether identity is inherited or constructed (it is constructed) |
-| Q10 price expiry | P1 | Drives `freshness` and re-verification windows |
-| Q11 re-verification | P1 | The verified-before-alert gate depends on it |
-| Q2 MCP client matrix | P1 (MCP) | Gates only D2's P1/P2 stages |
-| Q6 multi-destination | P2 | Shapes the planner's first phase, not its feasibility |
-| Q7 volume economics | P2 | Shapes budget policy, not the contract |
-| Q3 OpenAPI composition | **Done** | Fixed and pinned |
-| Q4 architecture-doc location | Low | A filing decision |
-
-**Scanner-layer questions (owner review: these are the ones that matter to the product).** Each carries what is already known from this repository's own API documentation, so the list is a work queue rather than a blank page.
-
-- **Q5 — Does LetsFG expose the search dimensions the scanner needs?** Partly, and the gaps are structural. Supported today: one origin, **one** destination, a single `date_from` (+ `return_date`), `cabin_class: "F"` for First, `max_stops`, passengers, currency, `limit`, `sort`, and a departure-time window (`docs/api-search.md:20-45`, `docs/cli-reference.md:55`). **Not supported anywhere in the API: a departure *range*, a return range, or a trip-duration/nights window.** A scanner over flexible dates must therefore fan out over dates itself and carry the scheduling cost — which is precisely what makes a Search Planner necessary rather than optional.
-- **Q6 — Can it search multiple destinations in one operation?** Yes, two primitives, with very different semantics: `POST /flights/discover` takes **up to 20 destinations from one origin in a single call** and returns **indicative** prices, billed as **1 search** for the whole batch, 2–5 s (`docs/api-search.md:290-340`); `POST /flights/multi-search` fires N destinations in parallel and bills **1 search per destination** (`docs/api-search.md:20-45`). The discover response even reports per-destination absence honestly (`{"destination":"ORD","price":null,"found":false}`) and carries a `data_note` saying the prices are indicative — which is exactly the verified-vs-indicative distinction the scanner needs, arriving from the server.
-- **Q7 — What is the maximum practical search volume?** The ceiling is billing, not throughput: **every destination counts as one search** with no bundle discount, except discover. PFS card limits are 10 per 10 min / 30 per hour / 100 per day; the Developer API is 60 req/min with 200 free searches after each booking and $0.01 per excess search (`AGENTS.md` rate-limit table). The implication is structural, not arithmetic:
+**Q1 — Per-source status in the search response. DECIDED.**
+Carry `completeness` in the contract and **synthesise it client-side** when the
+hosted API does not expose source-level evidence. This is D1, plus a rule about
+what the client may claim:
 
 ```
-candidate search count → cost estimate → rate-limit feasibility → execution schedule
+completeness: { state: complete | partial | blocked, expected: null, completed: null, failed: null }
+sources: []
 ```
 
-…**not** `destination pool → blind Cartesian product`. A 10-origin × 50-destination × 90-day × 10-duration expansion is therefore not a search plan — it is a budget, which is why the Search Planner is a first-class component rather than a loop. The planning algorithm itself belongs in the scanner design (§6 there), not here.
-- **Q8 — What is the actual polling/rate-limit contract?** Published for the happy path (above), but the **failure direction of the limiter is still unknown** — see implementation plan P1.3. That gap is worth closing before a scheduler depends on it.
-- **Q9 — Does the API return stable fare/itinerary identifiers?** Within one search an offer has an `id`, but nothing documented promises stability across searches, and `discover` returns no fare identity at all — only a destination and a price. So **identity must be constructed client-side** (the scanner design's `ItineraryIdentity` / `OfferIdentity`); it cannot be inherited.
-- **Q10 — How quickly does a returned price expire?** Offers expire ~15 minutes after a search (`AGENTS.md`), and discover prices are explicitly indicative and not bookable. Retained observations therefore need `observed_at` + `freshness` from the moment they are stored (§2.1).
-- **Q11 — Can a result be re-verified before alerting?** Yes, and it is the only way to avoid the "headline price, checkout price" failure: re-run `/flights/search` for that specific destination and date pair and compare. That re-check is what the scanner's `price_status: observed → verified` transition models (§2.4; scanner design §5, §6.5).
+> A successful response is **not** evidence that every backend was queried. The
+> client must not invent provider-level failures the API did not report, **and it
+> must not claim `complete` on the strength of a 200 alone**.
+
+A documented empty result may be stated as fact; an uncountable one may not. This is
+already how the shipped envelope behaves — `envelopeForData(null)` in
+`sdk/mcp/src/envelope.ts` returns `ok`/`partial`, never `complete` — so the decision
+matches the implementation rather than proposing a change to it.
+
+**Q2 — MCP client compatibility. DECIDED (with a test still to run).**
+Adopt `outputSchema` and `structuredContent`; treat `structuredContent` as
+canonical and the text as a rendering (§2.2). **Content audience/priority
+annotations stay conditional** on a real client check. Incompatibility must never
+break the basic tool result: if a client mishandles an annotation, the search result
+must still be usable. Protocol behaviour is covered by the spawn-based MCP harness;
+presentation needs one manual check per client, which a harness cannot do.
+
+| Feature | Decision |
+|---|---|
+| `outputSchema` | Adopt (P0) |
+| `structuredContent` | Adopt (P0) |
+| Separate human/JSON content | Adopt (P1) |
+| Audience/priority annotations | Test first (P2) |
+
+**Q3 — OpenAPI double-prefix. CLOSED.**
+It was a **specification error**, not a server quirk: `servers[0].url` and every path
+key both carried `/api/v1`, composing to `…/api/v1/api/v1/…`. Fixed and pinned by
+`test/docs-claims.test.mjs` on 2026-10-03. No further design work.
+
+**Q4 — A root `DESIGN.md`? DECIDED: no.**
+Keep `docs/architecture-guide.md` as the single stable architecture surface and link
+the specific studies from it. A root `DESIGN.md` would create a second place where a
+reader (or an agent) has to work out which architecture document is authoritative.
+
+```
+README.md                → what LetsFG is, quick start
+docs/architecture-guide.md → stable architecture and principles   ← extended, not duplicated
+docs/**                  → subsystem and API reference
+docs/*-study-*.md        → specific investigations/proposals
+```
+
+**Q5 — Search dimensions the scanner needs. DECIDED → the Search Planner is
+first-class.** Supported: origin, one destination, `date_from` (+ `return_date`),
+`cabin_class: "F"`, `max_stops`, passengers, currency, `limit`, `sort`,
+departure-time window (`docs/api-search.md:20-45`, `docs/cli-reference.md:55`).
+**Absent everywhere: departure range, return range, trip-duration/nights range.**
+So `search(origin, destination, date_range)` does not exist and cannot be emulated
+by one call; flexible dates mean generating individual searches, each consuming
+capacity.
+
+> Build the Search Planner as a first-class component. **Do not implement
+> flexible-date scanning as a nested Cartesian-product loop.**
+
+**Q6 — Multiple destinations in one operation. DECIDED (P2).**
+Two primitives with different meanings, and the difference is the point:
+`POST /flights/discover` takes up to **20 destinations from one origin, billed as
+one search**, 2–5 s, **indicative** prices, destination-level absence
+(`{"destination":"ORD","price":null,"found":false}`) and a `data_note` saying so
+(`docs/api-search.md:290-340`); `POST /flights/multi-search` runs N destinations in
+parallel and bills **one search per destination**.
+
+> `discover` is an optimisation for **candidate generation**, not the scanner's
+> authoritative fare observation. Indicative prices can never become verified.
+
+```
+Candidate generation (discover) → ranking → budget/rate-limit check
+    → targeted search (authoritative) → verification
+```
+
+**Q7 — Practical search volume. DECIDED (P2): it is a budget problem, not a
+maximum.** PFS: 10/10 min, 30/hour, 100/day. Developer API: 60 req/min, 200 free
+searches per booking, then $0.01 each; **every destination counts as one search**, no
+bundle discount, `discover` excepted.
+
+```
+candidate search space → candidate search count → cost estimate
+    → rate-limit feasibility → ranking → execution schedule
+```
+
+A 10 × 50 × 90 × 10 expansion is not an execution plan — it is a candidate space.
+The optimisation algorithm belongs in the scanner design (§6 there).
+
+**Q8 — Limiter failure behaviour. OPEN, and a P0 blocker.**
+
+> **The Search Scheduler cannot be finalised until the rate-limit failure contract
+> is established by experiment.** Until it is measured, treat
+> `rate_limit_failure_behavior = UNKNOWN` and encode no speculative behaviour.
+
+The published limits describe **capacity**; they say nothing about **failure**.
+Before a continuously running scheduler exists, all of this must be measured:
+
+1. What status is returned on crossing the limit — `429` or something else?
+2. Is `Retry-After` supplied, and in which form?
+3. **Does a rejected request still consume quota?**
+4. What is the limit scope — API key, account, IP, endpoint, or a combination?
+5. Does concurrency count separately from request rate?
+6. What happens after repeated violations — cooldown, temporary block, suspension?
+7. Is it enforced the same way on `/flights/search`, `/flights/discover`,
+   `/flights/multi-search`?
+8. **Does polling `/api/results/{id}` consume the search quota or a separate
+   request quota?**
+
+The reason to insist on measuring: a scheduler holding a 100-search plan that
+reaches the limit at search 37 must know whether to stop, wait, retry, reschedule,
+discard or deprioritise — and none of those is inferable from a published rate.
+Do it with a controlled probe (approach the threshold, cross it deliberately, record
+status/headers/`Retry-After`, immediately retry once, observe recovery and whether
+quota was consumed), without generating unnecessary production traffic.
+
+**Q9 — Stable fare/itinerary identity. DECIDED (P1): construct it client-side.**
+An offer carries an `id` within one search; nothing documents that it survives
+across searches, and `discover` returns no fare identity at all.
+
+> The API's offer id is an **observation-local identifier**, not a durable scanner
+> identity. Never inherit it as one.
+
+The durable forms are the scanner's `ItineraryIdentity` / `OfferIdentity`
+(scanner design §5.2), with canonicalisation defined there.
+
+**Q10 — Price expiry. DECIDED (P1): separate offer validity from observation
+freshness.** The documented ~15-minute offer lifetime is an **offer-validity hint**,
+not the scanner's freshness policy. Three distinct things are persisted:
+`observed_at`, `freshness`, `price_status` (scanner design §5.1/§5.4). A stored
+observation stays useful historically after the underlying fare has expired; the
+scanner's vocabulary covers both cases — a fare past its validity window is `stale`
+as an observation and `unavailable` once an authoritative search no longer returns
+it. `discover` prices are `indicative` and must not inherit the semantics of a
+search offer.
+
+**Q11 — Re-verification before alerting. DECIDED (P1): a verified-before-alert
+gate.** Re-running a targeted `/flights/search` for that origin/destination/date
+pair is the correct pre-alert check:
+
+```
+indicative → observed → verified → alert eligible
+```
+
+**With the semantic limit stated explicitly:** re-verification proves the
+authoritative search path returned the fare again. It does **not** prove the airline
+checkout will honour that price.
+
+> `verified` ≠ guaranteed bookable.
+
+**Summary.**
+
+| Q | Decision | Priority | Status |
+|---|---|---|---|
+| Q1 | Carry `completeness`; synthesise it when source-level evidence is not exposed; never claim `complete` from a 200 alone | P1 | **Decided** |
+| Q2 | Adopt `structuredContent`; annotations only after a client check | P1 MCP | **Decided; compatibility test remains** |
+| Q3 | OpenAPI was wrong; fixed and pinned | Done | **Closed** |
+| Q4 | Extend `docs/architecture-guide.md`; no root `DESIGN.md` | Low | **Closed** |
+| Q5 | Missing flexible-date dimensions require a first-class Search Planner | P1 | **Decided** |
+| Q6 | `discover` for candidate generation; `multi-search` for real multi-destination search | P2 | **Decided** |
+| Q7 | Search volume is a budget/rate-limit planning problem | P2 | **Decided** |
+| Q8 | Must measure limiter failure semantics before the scheduler | **P0** | **OPEN — the only blocker** |
+| Q9 | Construct durable identity client-side; the API id is observation-local | P1 | **Decided** |
+| Q10 | Separate offer expiry from observation freshness; persist `observed_at` | P1 | **Decided** |
+| Q11 | Targeted re-search before alert; `verified` ≠ guaranteed bookable | P1 | **Decided** |
+
+**The dependency chain these decisions imply:**
+
+```
+                    LetsFG API capabilities
+                            │
+                 ┌──────────┴──────────┐
+              Q5 / Q6                Q7 / Q8
+           dimensions &            budget &
+           primitives              failure contract   ← Q8 blocks here
+                 └──────────┬──────────┘
+                            ▼
+                     Search Planner
+                            ▼
+                    Search Scheduler
+                            ▼
+                    Raw observations
+                    ┌───────┴────────┐
+                 Q9 identity     Q10 freshness
+                    └───────┬────────┘
+                            ▼
+                    Candidate ranking
+                            ▼
+                    Q11 verification
+                            ▼
+                      Alert gate
+```
+
+Q1 and Q2 need validation but do not block the architecture; Q5, Q9, Q10 and Q11
+establish the core scanner contracts; **Q8 is the only true blocker**.
 
 ---
 
@@ -448,3 +629,18 @@ sentence forbids.
   first**, then Q1/Q9–Q11; documentation restructuring deferred; router deferred
   until measured evidence; health store **not built**; provider architecture
   explicitly out of scope.
+- *Review #3 — Q1–Q11 decided*, applied: §6 is now a **decisions** section rather
+  than a work queue. Q1 carry-and-synthesise `completeness`, never claiming
+  `complete` from a 200 alone (§2.4); Q2 adopt `structuredContent` with annotations
+  gated on a client check, and the criterion that incompatibility must not break the
+  basic tool result (§2.2); Q3 closed (spec error, fixed and pinned); Q4 no root
+  `DESIGN.md` — one architecture surface (D13); Q5 the Search Planner is
+  first-class and flexible dates are not a nested Cartesian loop; Q6 `discover` is
+  candidate generation only, never authoritative observation; Q7 search volume is a
+  budget/rate-limit planning problem; **Q8 stays OPEN as the single P0 blocker**
+  with the eight behaviours a probe must establish, and the rule that no speculative
+  limiter behaviour may be encoded; Q9 identity is constructed client-side and the
+  API offer id is observation-local; Q10 offer validity is separated from
+  observation freshness; Q11 the verified-before-alert gate, with **`verified` ≠
+  guaranteed bookable** stated in both documents. A summary table and the implied
+  dependency chain close §6.

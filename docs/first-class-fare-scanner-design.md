@@ -71,7 +71,7 @@ Grounding first, because the design must fit the actual API. Sources:
 | Multi-destination (full) | `POST /flights/multi-search` — N destinations in parallel, **1 search per destination** | The expensive second pass, for candidates only |
 | Absence reporting | `discover` returns `{"destination":"ORD","price":null,"found":false}` and a `data_note` saying prices are indicative | The server distinguishes "not found" from a price, and warns its prices are not final |
 | Billing | Every destination counts as one search, no bundle discount; discover excepted | The scan plan is a **budget**, not just a schedule |
-| Rate limits | PFS card: 10/10 min, 30/hour, 100/day. Developer API: 60 req/min, 200 free searches after each booking, then $0.01 each | Cadence is capped by the account; the limiter's *failure direction* is still unknown (study P1.3) |
+| Rate limits | PFS card: 10/10 min, 30/hour, 100/day. Developer API: 60 req/min, 200 free searches after each booking, then $0.01 each | Cadence is capped by the account, and the limiter's *failure contract* is **unmeasured** — the one P0 blocker for the scheduler (study §6, Q8; §12 here) |
 | Offer lifetime | Offers expire ~15 minutes after a search; discover prices are not bookable | Nothing is stored as "current" without an observation time (study §2.1) |
 | Fare identity | Offers have an `id` within a search; nothing promises stability across searches. `discover` returns only destination + price | Identity must be **constructed** by us, and graded by how much the API actually tells us (§5.2) |
 | Fare conditions | Search offers carry `conditions.refund_before_departure` / `change_before_departure`; fare brand/bucket are **not** documented | Two products can share one itinerary; offer-level identity is best-effort, and must say so (§5.2) |
@@ -296,6 +296,14 @@ that can disagree is how "bookable but indicative" gets shipped.
 `verified` carries `verified_at` and the `observation_id` that verified it.
 Provenance lives in `source_operation` (`discover | search | verify`), so the
 *status* stays a single value while the *route it arrived by* remains auditable.
+
+**What `verified` does and does not prove (Q11 decision in the study, §6).**
+Re-verification proves the authoritative search path returned that fare again for
+that route and date. It does **not** prove the airline checkout will honour that
+price: `verified` **≠ guaranteed bookable**. The honest chain is
+`indicative → observed → verified → alert eligible`, and an alert must never
+promise more than the last step established — which is also why the alert copy in
+§8 says "verified 4 min ago" rather than "available".
 
 ### 5.5 `FareEvaluation` — what we think about it (derived, versioned)
 
@@ -1025,6 +1033,31 @@ production alerting is enabled.
 
 **The four metrics are reported separately:** objective precision · alert rate ·
 coverage · user utility (§9.1).
+
+---
+
+**Open blocker (not a decision, and not hidden).** One question remains genuinely
+unanswered and it gates P2.2's scheduler: the **rate-limit failure contract**.
+
+```
+rate_limit_failure_behavior = UNKNOWN
+```
+
+Published limits describe *capacity*, not *failure*. Until a controlled probe
+establishes what crossing the limit does — status returned, `Retry-After`, **whether
+a rejected request still consumes quota**, the limit's scope, whether concurrency
+counts separately, behaviour after repeated violations, per-endpoint consistency,
+and whether polling `/api/results/{id}` draws on the search quota — **no scheduler
+logic may assume a behaviour**. The full question list and probe recipe are in the
+study (§6, Q8); the scheduler's recovery policy (§6.3 skip reasons, §6.6 budget)
+depends on the answer, so P2.2 lands its planner and observation paths first and its
+recovery behaviour last.
+
+The study's Q5/Q6/Q9/Q10/Q11 decisions (2026-10-03) are the source of several rules
+in this document: the planner being first-class (§6.1), `discover` as
+candidate-generation only (§6.1, §5.4), client-constructed identity (§5.2),
+offer-validity versus observation freshness (§7.1), and the verified-before-alert
+gate with `verified` ≠ guaranteed bookable (§5.4, §6.5, §8).
 
 ## Scope and working agreement
 
