@@ -54,6 +54,11 @@ nav:
     - Tutorials: tutorials.md
     - Architecture & Resilience: architecture-guide.md
     - Self-Hosting & HTTP Endpoints: self-hosting.md
+  - Engineering:
+    - Working Agreement: working-agreement.md
+    - Repository Familiarization: repository-familiarization.md
+    - trvl Study — Design: trvl-study-design.md
+    - trvl Study — Implementation: trvl-study-implementation.md
 
 extra:
   generator: false
