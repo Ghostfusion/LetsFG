@@ -3,7 +3,7 @@
 **Status:** design only. Nothing in this document is implemented, and none of it
 may be implemented as incidental work — see *Scope and working agreement* at the
 end.
-**Date:** 2026-10-03 (revision 3, after the owner's decisions on the open questions)
+**Date:** 2026-10-03 (revision 4, after the P2 sequencing decision)
 **Purpose:** design a continuously running system that watches a pool of
 destinations over flexible dates in First Class, detects genuinely unusual fares,
 and alerts on them — instead of merely returning the cheapest fare available at
@@ -11,6 +11,15 @@ the moment it was asked.
 **Depends on:** [`trvl-study-design.md`](trvl-study-design.md) (MCP contracts,
 status/completeness/freshness, client reliability) — the *client* layer this
 system is built on top of.
+
+> **What changed in revision 4.** P2 is re-sequenced: it begins with the
+> observation store and shadow collection, **not** alert delivery (§11). The
+> precision target is an owner *requirement* while the thresholds are
+> *uncalibrated hypotheses* (§7.3), and a **P2 alerting gate** now forbids alert
+> delivery until the calibration dataset exists and the threshold policy is
+> versioned. Calibration sufficiency is defined by sample size **and diversity**,
+> not by a count (§9.6), and the selected configuration is the least restrictive
+> one that meets ≥80% precision while preserving coverage.
 
 > **What changed in revision 3.** The seven open questions are now **decisions**
 > (§12), and they are normative V1 rules: a separate scanner repository, SQLite +
@@ -648,6 +657,22 @@ low-confidence candidate is logged for the operator rather than alerted.
 
 ### 7.3 Thresholds are provisional
 
+**Thresholds are hypotheses. The precision target is a requirement.** These are
+two different things and the document must not conflate them:
+
+```
+owner requirement (fixed):     alert precision >= 80% objective
+candidate thresholds (uncalibrated):
+    percentile <= 15
+    confidence >= 0.70
+status:                        provisional / uncalibrated  — hypotheses to test
+```
+
+So it is **not** correct to say "we target 80% precision, therefore use
+`percentile <= 15` and `confidence >= 0.70`". The two numbers on the bottom line
+are *candidates* to be tested against the calibration dataset (§9.6); the number on
+the top line is what a selected configuration must achieve.
+
 Every number in §7–§8 is an **initial configuration value, not a discovered
 truth**: `percentile <= 15`, `confidence >= 0.7`, the score bands (`0–49` normal
 … `95–100` exceptional), `max_window_days = 180`, `min_samples = 30`,
@@ -823,6 +848,30 @@ percentile ∈ {5, 10, 15, 20}   ×   confidence ∈ {0.60, 0.70, 0.80}
 measure alert yield per verification search at `N ∈ {3, 5, 10}` and keep the best,
 rather than assuming a value.
 
+**Selection rule — least restrictive, not most precise.** Choose the configuration
+that achieves **≥80% precision while preserving as much opportunity coverage as
+possible**. Maximising precision alone has a trivial degenerate solution:
+
+```
+alert almost never  →  precision approaches 100%  →  the scanner is useless
+```
+
+so precision is a constraint to satisfy, not an objective to maximise.
+
+**Sufficiency is size *and* diversity, not a count.** "Calibration is complete" is
+**not** defined by reaching a fixed number of alerts. 50 evaluated alerts spread
+over two routes, one airline and one season are far weaker evidence than 50 spread
+over 30 routes, several carriers, several departure months and different trip
+lengths. The criterion is:
+
+> The dataset must be large **and representative** enough to distinguish candidate
+> threshold configurations with acceptable uncertainty.
+
+50 evaluated alerts is therefore an **initial operational target** to aim at, not a
+statistical guarantee under every distribution. The dataset must be reported with
+its diversity dimensions (routes, carriers, seasons, trip lengths) whenever a
+calibration result is claimed.
+
 ## 10. Deliberate non-goals
 
 | Not building | Why |
@@ -838,27 +887,47 @@ rather than assuming a value.
 
 ## 11. Implementation priority
 
+**Phase status**
+
 | Phase | Content | Status |
 |---|---|---|
 | **P0** correctness/security | atomic config writes · canonical config path · credential ownership · unblock the Python test suite · baseline CI | **Landed 2026-10-03** |
 | **P1A** contract correctness | `status` · `completeness` · `freshness` · verified-vs-indicative in the client contract | Status/completeness landed; `freshness` next |
 | **P1B** structured MCP output | `outputSchema` · `structuredContent` · content separation | Not started |
-| **P2A** scanner data model | `FareObservation` · `ItineraryIdentity`/`OfferIdentity` · persistence (append-only) · `FareState` projection | Not started |
-| **P2B** planner | policy validation · volume estimate · budget reservation (§6.6) · fan-out · cadence · `fresh_enough` | Not started |
-| **P3** intelligence | cohort baseline · `baseline_status` · two scores + confidence · FX normalization · replay harness (R10) · **shadow-mode collection (§9.5)** | Not started |
-| **P4** user experience | **calibration (§9.6) then alerts (one format)** → only if needed, a UI · natural-language policy input · LLM explanation | Not started |
-| **P5** optimization | destination prioritization · adaptive scan frequency · budget optimization · anomaly detection | Not started |
+| **P2.1** observation store | `FareObservation` · `ItineraryIdentity`/`OfferIdentity` · `search_run` · provenance · `price_status` · timestamps · currency/FX metadata — append-only and immutable, everything else derived | Not started |
+| **P2.2** shadow collection | the real policy on the real allocated budget, with `alerts_enabled = false`: policy validation · volume estimate · budget reservation (§6.6) · fan-out · cadence · `fresh_enough` · verification | Not started |
+| **P2.3** baseline / evaluation | cohort baseline · `baseline_status` · the two scores + confidence · FX normalization · replay harness (R10) | Not started |
+| **P2.4** calibration dataset | candidate → initial evaluation → verification → subsequent observed outcome → objective label; **positive and negative examples both required** | Not started |
+| **P2.5** threshold calibration | grid over percentile × confidence → select the least restrictive configuration meeting ≥80% precision (§9.6) | Not started |
+| **P2.6** alerting | version and freeze the selected policy, **then** enable delivery | Not started |
+| **P3** optimization | destination prioritization · adaptive scan frequency · budget optimization · anomaly detection | Not started |
+| **P4** user experience | one message format already lands in P2.6 → then, only if needed, a UI · natural-language policy input · LLM explanation | Not started |
 
-**Why P1A is split from P1B, and P2A from P2B** (review #2): the contract fields
-are prerequisites for storing anything honestly, while `outputSchema`/
-`structuredContent` are presentational and can land in parallel. Likewise the data
-model must be validated against real observations before the scheduler is written
-on top of it — a scheduler built first would encode assumptions the data model has
-not yet earned.
+**Why P1A is split from P1B** (review #2): the contract fields are prerequisites
+for storing anything honestly, while `outputSchema`/`structuredContent` are
+presentational and can land in parallel.
 
-**Alerts do not switch on at the end of P3.** P3 ends with a populated shadow
-dataset; P4 begins with calibration against it (§9.5–§9.6), and only then do alerts
-become user-visible.
+**Why P2 begins with observation capture and shadow evaluation, not alerts**
+(P2 sequencing decision, revision 4): the ≥80% precision target is an owner
+requirement, but **the thresholds cannot be calibrated yet because no calibration
+dataset exists** — and §9.5 shadow mode is what creates one. So P2.2 runs the real
+policy on the real budget with `alerts_enabled = false`, recording for every
+candidate: the observed price, whether it was indicative or verified, the
+itinerary, the cabin, the currency, the baseline at the time, what verification
+found, and whether the opportunity subsequently persisted, disappeared or changed.
+That is the dataset P2.4 assembles and P2.5 calibrates against.
+
+> **P2 alerting gate.** Alert delivery **MUST** remain disabled until the
+> observation/shadow pipeline has produced the calibration dataset and the selected
+> threshold policy has been versioned (`policy_version` / `evaluator_version` /
+> `baseline_version`, §5.5). No exceptions, no "temporary" enabling to see if it
+> works: an uncalibrated alert is an unmeasured claim, and the first impression of
+> a fare scanner is the only one it gets.
+
+The sequence makes the system become, in order: a reliable **travel-price
+observation and evidence engine** → a calibrated **deal detector** → an
+**alerting system**. Each stage is useful on its own, and nothing in a later stage
+has to be unwound to fix an earlier one.
 
 ## 12. Decisions (resolved)
 
@@ -933,8 +1002,22 @@ Initial target **≥80% objective alert precision** (eventually 85–90% if cove
 remains useful), secondary cap **≤2 high-priority alerts/day**, tertiary
 "maintain useful coverage". Precision is measured against the predefined objective
 criteria (§9.2), **not** clicks, bookings or any user action. User feedback is a
-separate utility signal. Thresholds stay provisional and are calibrated in shadow
-mode before being frozen into a versioned production policy (§9.3–§9.6).
+separate utility signal.
+
+**This is a production target, not evidence that the current thresholds are
+calibrated.** The calibration dataset does not initially exist; §9.5 shadow mode is
+what produces it. Therefore **P2 begins with observation storage and shadow
+collection rather than alerting** (§11): shadow observations, verification results
+and subsequent outcomes are retained for calibration, candidate percentile/
+confidence thresholds are evaluated against that dataset, and the selected
+configuration must achieve ≥80% precision **while preserving useful opportunity
+coverage** (the least restrictive qualifying configuration — not the most precise
+one). Calibration is complete only when the dataset is large **and representative**
+enough to separate candidate configurations with acceptable uncertainty; 50
+evaluated alerts is an operational target, not a statistical guarantee (§9.6).
+Once that data exists, the selected thresholds are versioned and frozen
+(`policy_version` / `evaluator_version` / `baseline_version`, §5.5) **before**
+production alerting is enabled.
 
 **One further rule adopted with decision 7:**
 
@@ -955,7 +1038,8 @@ incidental work inside the client. The only permitted work in this repository
 remains the client contract the scanner depends on (P1A/P1B) and defect fixes.
 
 Starting the scanner itself still needs an explicit go-ahead from the owner, and it
-begins in the other repository, at P2A (§11) with the data model.
+begins in the other repository, at P2.1 (§11) with the observation store and shadow
+collection — not with alert delivery, which the P2 alerting gate blocks.
 
 **Traceability.**
 
@@ -993,3 +1077,11 @@ begins in the other repository, at P2A (§11) with the data model.
   four-metric evaluation framework, observation window and shadow-mode rollout
   (§9). One further rule adopted: **an ignored alert is neither a true positive nor
   a false positive** (§9.2).
+- *Review #4 — P2 sequencing decision*, applied: P2 re-ordered to
+  observation store → shadow collection → baseline/evaluation → calibration
+  dataset → threshold calibration → alerting (§11); the **P2 alerting gate** added
+  as a MUST; the precision target distinguished from the uncalibrated thresholds
+  (§7.3); calibration sufficiency defined as size **and** representativeness rather
+  than a fixed count, with the least-restrictive-qualifying selection rule (§9.6);
+  and decision 7 extended to state that the target is a production requirement, not
+  evidence that the thresholds are calibrated (§12).
