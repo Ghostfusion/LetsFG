@@ -61,6 +61,7 @@ nav:
     - trvl Study — Implementation: trvl-study-implementation.md
     - flight-finder Study — Design: flight-finder-study-design.md
     - flight-finder Study — Implementation: flight-finder-study-implementation.md
+    - Fare Scanner — Design: first-class-fare-scanner-design.md
 
 extra:
   generator: false

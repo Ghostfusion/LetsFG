@@ -11,6 +11,13 @@ This document turns the design decisions into ordered, independently reviewable 
 
 ## 0. Ground rules for executing this plan
 
+> **Scope note.** This plan covers the **client** study only. The product
+> architecture the study serves — destination pools, flexible dates, First Class,
+> the search planner, fare history and deal scoring — is designed in
+> [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md),
+> which inherits the contract work below as a prerequisite and must not be
+> smuggled in as incidental work (working-agreement rule 4).
+
 - Follow `docs/working-agreement.md`: defect-only change surface (rule 4), fix defects on the spot (rule 3), docs in sync (rule 5), commit + push (rule 2), no secrets (rule 1).
 - No trvl code is copied. Interfaces and ideas only; trvl is PolyForm Noncommercial.
 - Every item ships with the test named in its Acceptance line. No green test = not done.
