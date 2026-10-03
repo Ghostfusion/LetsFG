@@ -62,6 +62,8 @@ nav:
     - flight-finder Study — Design: flight-finder-study-design.md
     - flight-finder Study — Implementation: flight-finder-study-implementation.md
     - Fare Scanner — Design: first-class-fare-scanner-design.md
+    - SerpApi Provider — Design: serpapi-provider-design.md
+    - SerpApi Provider — Implementation: serpapi-provider-implementation.md
 
 extra:
   generator: false
