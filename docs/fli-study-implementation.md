@@ -92,11 +92,26 @@ only way fli could ever contribute to the baseline problem — and it would stil
 
 ---
 
-## 3. Phase P1 — adopt the patterns (`DOCS`, then `GUARD`)
+## 3. Phase P1 — adopt the patterns (**done**, 2026-10-03, docs only)
 
 Independent of D6: these improve our design whatever we decide about fli.
 
-### P1.1 Loaded-empty vs never-loaded, as a contract `DOCS` `CODE`
+**Status: the four items landed as documentation** in the documents that own the
+contracts — the empty-reason taxonomy in [`trvl-study-design.md`](trvl-study-design.md)
+§2.1 (the envelope's owner), and the planner/alert rules in
+[`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §6.1, §6.7,
+§8 and decision 8 of §12.
+
+**One deliberate deviation from the plan as written:** no `GUARD` test landed with
+them, because there is no behaviour yet to test. Asserting that three empty-reasons
+are "distinct in the envelope" when the envelope does not implement them would be a
+test of documentation prose — which this repository's own verification rules forbid
+("never test source text"). The guards land **with the implementations** (the client
+envelope in this repo, the planner in the scanner repo), and each is listed below
+against the item it belongs to. Recording the deviation is the point: a guard written
+now would have looked like progress and proved nothing.
+
+### P1.1 Loaded-empty vs never-loaded, as a contract — **done (docs)**
 
 **Files:** [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md)
 §6.3/§6.6 and §9; envelope reference in
@@ -108,13 +123,14 @@ our own filters removed rows the provider did return) is a recorded fact, not an
 inference from emptiness. A party containing a child or infant may never be reported as
 `no_results` when the provider thins results client-side (design D9).
 
-**Acceptance:** design text updated, and a `GUARD` test that the three reasons are
-distinct in the envelope and cannot collapse into one.
+**Acceptance:** design text updated — **done**. The `GUARD` test (three reasons
+distinguishable, no collapse into one) lands **with the envelope implementation that
+supports it**, not before; it is listed as a client-envelope item, not a docs item.
 
 **Precedent:** this is the same rule as our existing `no_results` ≠ `timeout`, applied
 one layer out.
 
-### P1.2 A sweep breaker with stated arithmetic `DOCS`
+### P1.2 A sweep breaker with stated arithmetic — **done (docs)**
 
 **Files:** scanner §6 (planner), §6.6 (budget).
 
@@ -126,7 +142,7 @@ work (P3).
 **Acceptance:** the planner can describe, before it runs, what it will do when a
 provider is blocked, and the description matches the breaker's real arithmetic.
 
-### P1.3 State the sweep cost before running it `DOCS`
+### P1.3 State the sweep cost before running it — **done (docs)**
 
 **Change:** the planner must be able to state fetches, requests-after-retries, wall
 time and memory for a proposed fan-out, refusing plans whose cost it cannot state
@@ -134,7 +150,7 @@ time and memory for a proposed fan-out, refusing plans whose cost it cannot stat
 
 **Acceptance:** the planner section names the cost model and the refusal condition.
 
-### P1.4 Deterministic deep links in alert payloads `DOCS` `DEFER`
+### P1.4 Deterministic deep links in alert payloads — **recorded (docs), still deferred**
 
 **Change:** where an alert needs a "go look at this itinerary" link, prefer a link
 built locally from airports + dates + flight numbers (study P5) over one that requires
@@ -210,7 +226,7 @@ fail CI. No action beyond citation.
 | F1 | **Run the P0 probe** against Google under our IP, including whether to risk P0.5's sustained-load test | All of P0 | §10, §11 |
 | F2 | **Is direct acquisition (any owned scraper, fli or otherwise) acceptable** given its legal posture — unhedged, versus SerpApi's Legal Shield from $150/mo? | D6, all of P2 | §6, §9 |
 | F3 | **Depend on `flights` or vendor the encoder**, if F2 is yes | P2.2 | D7 |
-| F4 | Whether the adopt-the-patterns work (P1) should proceed now — it is valuable regardless of F2 | P1 | D1/D5 |
+| F4 | ~~Whether the adopt-the-patterns work (P1) should proceed now~~ — **answered 2026-10-03: yes**, adopted as documentation immediately (P1.1–P1.3 in the scanner and trvl-study contracts; P1.4 recorded and deferred); guards deferred to their implementations | — | D1/D5 |
 
 ---
 
@@ -224,10 +240,10 @@ fail CI. No action beyond citation.
 | P0.4 | §4.6 | F1 | fetches/requests/time/memory measured |
 | P0.5 | §4.6, §10.4 | F1 | answer recorded, or explicitly declined |
 | P0.6 | §4.4, §10.5 | F1 | field path, or "not determined" |
-| P1.1 | §4.5, §4.7, D9 | — | three empty-reasons distinguishable; child/infant → `partial` |
-| P1.2 | §4.6, §4.7 | — | breaker arithmetic documented and matched |
-| P1.3 | §4.6 | — | cost stated before the sweep; refusal condition named |
-| P1.4 | §5.1 P5 | alert path | requirement recorded, blocker named |
+| P1.1 | §4.5, §4.7, D9 | — | **docs done** (trvl study §2.1 + scanner §6.7); guard lands with the envelope implementation |
+| P1.2 | §4.6, §4.7 | — | **docs done** (scanner §6.7); planner guard with the planner |
+| P1.3 | §4.6 | — | **docs done** (scanner §6.1, five cost dimensions + refusal) |
+| P1.4 | §5.1 P5 | alert path | **requirement recorded** (scanner §8), blocker named |
 | P2.1 | §5.3 P12, D4 | F2, D6 | conformance suite; cannot be primary; child/infant `partial` |
 | P2.2 | §5.2 P10, D7 | F3 | decision recorded; name collision handled |
 
@@ -239,7 +255,7 @@ fail CI. No action beyond citation.
 |---|---|---|
 | Study documents | **Done** | This plan and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
 | P0.1–P0.6 live probe | **Not started** | Needs F1; no request has been made to Google |
-| P1.1–P1.4 pattern adoption | **Not started** | Awaits F4 (and rule 4 for the guard files) |
+| P1.1–P1.4 pattern adoption | **Done (docs) 2026-10-03** | Empty-reason taxonomy in `trvl-study-design.md` §2.1; cost model, breaker and accounting in scanner §6.1/§6.7; absence and link rules in scanner §8; decision 8 of scanner §12. Guards deliberately not written yet — no behaviour exists to test |
 | P2.1–P2.2 provider / vendoring | **Not started** | Needs F2 and F3 |
 | P3 scanner wiring | **Out of scope** | Other repository |
 | O-1, O-2 | **Deferred** | Recorded above with reasons |
@@ -248,12 +264,11 @@ fail CI. No action beyond citation.
 
 ## 10. Order of work
 
-1. **F4** — decide whether to adopt the patterns now. They cost nothing, they are
-   independent of the ownership question, and they make the scanner's planner honest
-   about failure whether or not fli is ever used.
-2. **F2** — the ownership and legal decision. Everything about fli as a *provider*
-   waits here, and no amount of measuring substitutes for it.
-3. **F1 → P0** — if F2 is yes, probe from our own network before designing anything on
+1. ~~**F4** — decide whether to adopt the patterns now.~~ **Answered yes, 2026-10-03;
+   landed as documentation.** Next: **F2** — the ownership and legal decision.
+   Everything about fli as a *provider* waits there, and no amount of measuring
+   substitutes for it.
+2. **F1 → P0** — if F2 is yes, probe from our own network before designing anything on
    top of it; the repository's own history (§3) is a demonstration of what happens when
    an undocumented interface moves.
-4. **P2** only after P0, and only behind the existing provider contract.
+3. **P2** only after P0, and only behind the existing provider contract.

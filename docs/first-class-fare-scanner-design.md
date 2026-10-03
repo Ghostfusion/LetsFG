@@ -367,6 +367,23 @@ state its own cost is not allowed to run — this is the rule that keeps R6 from
 quietly burning a card's 100 daily searches and then reporting the resulting gaps
 as "no deals today".
 
+**Cost means the fan-out, not just the search count** (adopted 2026-10-03, from the
+fli study §4.6, which measured a bounded sweep at 42 page fetches / ~135 HTTP
+requests after retries / ~4 s / several hundred MB where an unbroken run would have
+cost 279 fetches):
+
+```
+estimated_units
+estimated_billable_searches
+estimated_http_requests        # includes the retry multiplier, not just successes
+estimated_wall_time
+estimated_peak_memory          # a sweep holds pages and parsed results per worker
+```
+
+A plan that cannot state **all five** is refused, not run optimistically — a sweep
+whose memory or retry cost is unknown is a sweep that can be killed halfway and
+report the wreckage as coverage.
+
 **Two-phase scan, because the platform supports it:**
 
 ```
@@ -491,6 +508,50 @@ Three rules make this a guarantee rather than a hope:
    (§6.5) instead of applied to every result.
 3. **Exhaustion is terminal for the run** (`budget_exhausted`, §6.3): the Planner
    stops creating work and does not borrow from the reserve.
+
+### 6.7 Emptiness, failure, and the sweep breaker
+
+Three facts must never be collapsed when a sweep reports nothing. The taxonomy is
+normative in [`trvl-study-design.md`](trvl-study-design.md) §2.1:
+
+```
+provider_empty    the lane answered and its own result set was empty
+not_loaded        no usable response: timeout, limiter refusal, auth failure, or a
+                  200 whose payload never arrived
+filtered_out      the lane returned rows; our own filters removed all of them
+```
+
+**Only `provider_empty` may be reported as "no results".** `not_loaded` is a failed
+unit, `filtered_out` is a narrowed one. A scan log that says "no deals today" while
+half its units never loaded is lying — this is §6.4's rule applied to outcomes
+rather than to plans.
+
+**The breaker** (adopted 2026-10-03, from the fli study §4.6/§4.7). A sweep that is
+being blocked must stop early rather than pay the full retry budget on every
+remaining unit:
+
+```
+breaker_bound = (grace + worker_count) × attempts_per_unit
+```
+
+- **Only `provider_empty` counts against the breaker.** A timeout says nothing about
+  the units not yet tried, so it must not consume their share.
+- **The breaker disarms permanently on the first successful load**, even an empty
+  one — which is exactly why it cannot catch a sweep that is mostly timeouts around
+  one lucky success.
+- So a **second, independent condition** is required: raise when nothing priced
+  **and** at least half the attempted units never loaded. A minority of failures
+  alongside real results (or alongside a confirmed-empty sweep) returns normally,
+  with the counts recorded.
+- `grace`, `attempts_per_unit` and the half-threshold are **our calibration
+  parameters**, not constants copied from another project's worker model.
+
+**Unattempted work is never charged as failed work.** The budget accounting counts
+units we actually sent; a breaker that abandons a sweep records the rest as
+`unattempted` — never `failed`, never billable. This keeps §6.3's distinction intact
+at the accounting layer, and it is the same discipline as
+[`serpapi-provider-design.md`](serpapi-provider-design.md) §10, where a failure is
+explicitly not a billable search.
 
 ## 7. Deal engine
 
@@ -729,6 +790,19 @@ same offer_identity AND same overall_opportunity band
 - **Unverified candidates are never alerted.** If verification could not run
   inside the budget, the candidate is logged (§6.5) — silence is the correct
   output when the evidence is missing.
+- **Never claim absence.** No alert, and no scan summary, may say "no flights on
+  this route" from a result that was `not_loaded` or `filtered_out`; and a party
+  containing children or infants is `partial`, never `no_results`, when a provider
+  thins results client-side (§6.7,
+  [`trvl-study-design.md`](trvl-study-design.md) §2.1). "We could not check" is a
+  legitimate output; "there is nothing there" is not, without positive evidence.
+- **The link is built locally, never fetched** (adopted from the fli study §5.1 P5,
+  where booking links are deterministic tokens built offline from airports, dates
+  and flight numbers). `[View]` must be constructed from the itinerary's own
+  identity with no provider call at alert time, so the alerting path cannot fail
+  because a source is down. **Deferred in practice:** there is no alert path yet to
+  carry it, and the builder belongs with provider work (§11) — recorded so the
+  requirement is not lost.
 - **One message format** for v1:
 
 ```
@@ -1069,6 +1143,34 @@ in this document: the planner being first-class (§6.1), `discover` as
 candidate-generation only (§6.1, §5.4), client-constructed identity (§5.2),
 offer-validity versus observation freshness (§7.1), and the verified-before-alert
 gate with `verified` ≠ guaranteed bookable (§5.4, §6.5, §8).
+
+**8. Emptiness is typed, a blocked sweep stops early, and the plan states its full
+cost (adopted 2026-10-03, from [`fli-study-design.md`](fli-study-design.md)).**
+Four parts, all of them the same discipline the rest of this design already applies
+to prices:
+
+- **`empty_reason` is normative** (§6.7, taxonomy in
+  [`trvl-study-design.md`](trvl-study-design.md) §2.1): `provider_empty` |
+  `not_loaded` | `filtered_out`. `no_results` may only be claimed for the first;
+  `not_loaded` is a failure, `filtered_out` is our own narrowing. A party with
+  children or infants is `partial`, never `no_results`, when a provider thins
+  results client-side.
+- **The cost estimate covers the fan-out, not just searches** (§6.1):
+  `estimated_units`, `estimated_billable_searches`, `estimated_http_requests`
+  (retry multiplier included), `estimated_wall_time`, `estimated_peak_memory`. A
+  plan that cannot state all five is refused, not run optimistically.
+- **A breaker with our own arithmetic** (§6.7):
+  `breaker_bound = (grace + worker_count) × attempts_per_unit`; only
+  `provider_empty` counts against it; it disarms on the first successful load; and
+  a separate condition raises when nothing priced **and** at least half the
+  attempted units never loaded. `grace`, `attempts_per_unit` and the half-threshold
+  are ours to calibrate.
+- **Unattempted ≠ failed ≠ billable** (§6.7): abandoned units are recorded as
+  `unattempted`, never charged as failed work or as searches.
+- **Alert links are built locally, never fetched** (§8): `[View]` comes from the
+  itinerary's own identity with no provider call at alert time. Deferred in
+  practice — there is no alert path yet to carry it, and the builder belongs with
+  provider work.
 
 ## Scope and working agreement
 

@@ -78,6 +78,43 @@ scanner will gate an alert on completeness *and* freshness *and* status at once,
 and a collapsed enum would force it to re-derive the missing dimensions from the
 one that survived.
 
+**Empty has a reason, and the reason is data (adopted 2026-10-03, from
+[`fli-study-design.md`](fli-study-design.md)).** An empty result set is three
+different facts. Collapsing them is how a client tells a user "there are no flights"
+when it never loaded a page:
+
+```
+empty_reason = provider_empty    # the source answered and its own result set was empty
+               not_loaded        # no usable response at all: timeout, limiter refusal,
+                                 # consent interstitial, or a 200 whose payload never arrived
+               filtered_out      # the source returned rows; our own filters removed all of them
+```
+
+The mapping onto the axes is forced, not a matter of taste:
+
+| `empty_reason` | `status` | `completeness` |
+|---|---|---|
+| `provider_empty` | `no_results` | per the declared coverage contract — **not** automatically `complete` |
+| `not_loaded` | `timeout` / `failed` | `blocked` |
+| `filtered_out` | `ok` | `partial` — we narrowed it; the source did not report nothing |
+
+Three rules follow, and each has already been paid for somewhere else:
+
+1. **`no_results` may only be claimed for `provider_empty`.** "HTTP 200 with no
+   payload" is a documented, routine failure mode of at least one real provider
+   (the fli study §3), so it must never be rendered as an empty market.
+2. **`filtered_out` is never "no flights".** A client-side filter cannot back-fill a
+   server-side one, so an empty set after our own filtering is evidence about our
+   filter, not about the route.
+3. **A party-dependent empty carries its caveat.** At least one real source thins
+   results for children and infants — measured down to zero rows in premium cabins —
+   so an empty answer for a party with children is not evidence that the route is
+   unserved. Positive evidence is required before any statement about a route's
+   existence.
+
+This is §2.4's completeness rule one layer out: never claim more from an absence
+than the absence supports.
+
 **`observed_at` semantics (review #2 of this study).** One canonical definition,
 because `freshness` drives alert eligibility:
 
