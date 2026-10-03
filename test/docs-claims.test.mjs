@@ -32,6 +32,17 @@ test('the MCP package version matches the registry manifest, both places', () =>
   }
 });
 
+// The version the server reports in `initialize.serverInfo` and in its
+// User-Agent is a separate literal from the package manifest. It drifted to
+// 1.3.1 while the package was 2026.5.78, so an agent could not tell which build
+// had answered it.
+test('the MCP runtime version matches its package version', () => {
+  const pkg = json('sdk/mcp/package.json').version;
+  const runtime = /^const VERSION = '([^']+)'/m.exec(read('sdk/mcp/src/index.ts'))?.[1];
+  assert.ok(runtime, 'sdk/mcp/src/index.ts must declare VERSION');
+  assert.equal(runtime, pkg, 'the version in initialize.serverInfo and the User-Agent must be the package version');
+});
+
 test('the Python package version matches its runtime __version__', () => {
   const pyproject = read('sdk/python/pyproject.toml');
   const declared = /^\s*version\s*=\s*"([^"]+)"/m.exec(pyproject)?.[1];
@@ -167,4 +178,40 @@ test('every local markdown link resolves to an existing path', () => {
     }
   }
   assert.deepEqual(broken, [], `broken local links:\n  ${broken.join('\n  ')}`);
+});
+
+// ── Supported versions ────────────────────────────────────────────────────
+// SECURITY.md tells a reporter which lines get fixes. A table naming a version
+// nobody ships (it said 1.0.x while every package was on 2026.5.x) tells them
+// their finding is out of scope when it is not.
+
+test('SECURITY.md supported versions track the shipped version line', () => {
+  const supported = read('SECURITY.md');
+  const pythonVersion = /^version\s*=\s*"([^"]+)"/m.exec(read('sdk/python/pyproject.toml'))?.[1];
+  const rows = [
+    ['letsfg (Python)', pythonVersion],
+    ['letsfg (npm)', json('sdk/js/package.json').version],
+    ['letsfg-mcp (npm)', json('sdk/mcp/package.json').version],
+  ];
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  for (const [name, version] of rows) {
+    assert.ok(version, `${name}: could not read a version from its manifest`);
+    const line = `${version.split('.').slice(0, 2).join('.')}.x`;
+    const row = new RegExp(`\\|\\s*${escape(name)}\\s*\\|\\s*${escape(line)}\\s*\\|`);
+    assert.match(supported, row, `SECURITY.md does not list ${name} at ${line} (manifest says ${version})`);
+  }
+});
+
+// ── Parked Python tests ───────────────────────────────────────────────────
+// sdk/python/conftest.py parks modules that cannot run. An entry pointing at a
+// file that no longer exists is dead configuration, and it hides the real work
+// queue behind an entry nobody can act on.
+
+test('every parked Python test module still exists', () => {
+  const entries = [...read('sdk/python/conftest.py').matchAll(/"(tests\/[^"]+)"/g)].map((m) => m[1]);
+  assert.ok(entries.length > 0, 'expected collect_ignore_glob entries in sdk/python/conftest.py');
+
+  const missing = entries.filter((p) => !existsSync(join(ROOT, 'sdk/python', p)));
+  assert.deepEqual(missing, [], 'conftest.py parks modules that no longer exist — delete those entries');
 });

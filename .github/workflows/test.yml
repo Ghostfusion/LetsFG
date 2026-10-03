@@ -3,9 +3,11 @@ name: CI Tests (Tier-1 gate)
 # Tier-1 deterministic merge gate.
 # Required status checks: python-deterministic, typescript-packages.
 # Enable both in Settings → Branches → main → required status checks.
-# python-deterministic guards connector parsing; browser/network tests are marked
-# @pytest.mark.live and excluded here — covered by connector-smoke.yml (Tier-2).
+# python-deterministic runs the offline suite; network tests are marked
+# @pytest.mark.live and excluded here — run them on demand with `pytest -m live`
+# (docs/TESTING.md).
 # typescript-packages type-checks the JS SDK and MCP server.
+# docs-claims runs the two zero-dependency guards: documented claims + workflow hygiene.
 
 on:
   pull_request:
@@ -25,11 +27,15 @@ jobs:
   typescript-packages:
     name: TypeScript packages (Tier-1, required)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         package: [sdk/js, sdk/mcp]
     steps:
+      # The token is only needed for this checkout; nothing later pushes.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
         with:
           node-version: '20'
@@ -49,8 +55,11 @@ jobs:
   docs-claims:
     name: Docs claims & links (Tier-1, required)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
         with:
           node-version: '20'
@@ -59,14 +68,18 @@ jobs:
       # server+path composition, and local markdown links.
       - name: Docs claims and local links
         run: node --test test/docs-claims.test.mjs
+      - name: Workflow hygiene (timeouts, permissions, pins, concurrency)
+        run: node --test test/workflow-hygiene.test.mjs
 
   test-coverage-gate:
     name: Test coverage gate (new source files)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-test-gate')
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Check new source files have tests
@@ -129,11 +142,14 @@ jobs:
   python-deterministic:
     name: Python deterministic tests (Tier-1, required)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: sdk/python
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: '3.12'

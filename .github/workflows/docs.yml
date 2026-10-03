@@ -11,10 +11,19 @@ on:
 permissions:
   contents: write
 
+# Publishing job: never cancel a deploy in flight (a cancelled gh-deploy can
+# leave a half-published site). Runs are serialized on the branch instead.
+concurrency:
+  group: docs-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      # The checkout credential is required here: `mkdocs gh-deploy --force`
+      # pushes the built site. Do not add persist-credentials: false.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0

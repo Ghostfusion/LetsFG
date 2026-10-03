@@ -20,9 +20,13 @@ We aim to acknowledge reports within 48 hours and provide a fix or mitigation wi
 
 | Package | Version | Supported |
 |---------|---------|-----------|
-| letsfg (Python) | 1.0.x | ✅ |
-| letsfg (npm) | 1.0.x | ✅ |
-| letsfg-mcp (npm) | 1.0.x | ✅ |
+| letsfg (Python) | 2026.5.x | ✅ |
+| letsfg (npm) | 2026.5.x | ✅ |
+| letsfg-mcp (npm) | 2026.5.x | ✅ |
+
+Only the latest published release on each channel is supported. The version
+constants in the manifests are the source of truth: `test/docs-claims.test.mjs`
+asserts they agree, and this table is checked in the same place.
 
 ## Scope
 
@@ -44,7 +48,10 @@ We aim to acknowledge reports within 48 hours and provide a fix or mitigation wi
 
 ## API Security Model
 
-- **API keys** authenticate all requests. Keep your key secret.
+- **Two credentials, two lanes.** Agents use a card-backed OAuth Bearer token
+  (PFS: search and booking); the paid Developer API uses an `X-API-Key`. Keep
+  either secret — an API key is a balance, and a Bearer token is bound to the
+  payer's card.
 - **Revolut** handles card storage and every charge on every lane, including the Developer API. Stripe was removed entirely on 2026-09-08 and its routes answer `410 Gone`. LetsFG never stores card numbers.
 - **Passenger data** (names, emails) is passed directly to the airline for booking. We do not store passenger PII beyond the booking transaction.
 - **HTTPS only** — all API traffic is encrypted in transit.

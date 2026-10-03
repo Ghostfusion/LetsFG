@@ -48,6 +48,8 @@ from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
+from letsfg.config import atomic_write_json, token_store_path
+
 _BASE_URL = os.environ.get("LETSFG_BASE_URL", "https://letsfg.co")
 _DEV_ROOT = f"{_BASE_URL}/developers/api"
 
@@ -77,11 +79,8 @@ class BearerTokenError(Exception):
 # ── config ────────────────────────────────────────────────────────────────
 
 def _config_path() -> Path:
-    if os.name == "nt":
-        base = Path(os.environ.get("APPDATA", Path.home()))
-    else:
-        base = Path.home()
-    return base / ".letsfg" / "config.json"
+    """The PFS token store. Location and write strategy live in letsfg.config."""
+    return token_store_path()
 
 
 def _load_config() -> dict:
@@ -95,13 +94,13 @@ def _load_config() -> dict:
 
 
 def _save_config(cfg: dict) -> None:
-    p = _config_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cfg, indent=2))
-    try:
-        p.chmod(0o600)
-    except Exception:
-        pass
+    """Persist the token store owner-only and atomically.
+
+    Not "write then chmod": this file holds the rotating refresh token, and a
+    write interrupted halfway leaves something that parses as "not
+    authenticated", forcing the user through a new card connect.
+    """
+    atomic_write_json(_config_path(), cfg)
 
 
 def save_token(

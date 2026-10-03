@@ -544,7 +544,7 @@ class FlightSearchResponse(BaseModel):
     passenger_ids: list[str] = Field(
         default_factory=list,
         description="Passenger IDs from the offer request — REQUIRED for booking. "
-        "Map these 1:1 to your passengers when calling POST /bookings/book.",
+        "Map these 1:1 to your passengers when calling POST /developers/api/v1/flights/book.",
     )
 
     origin: str

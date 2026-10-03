@@ -27,20 +27,21 @@ Thanks for your interest in contributing! 🚀
 **Every PR that adds or modifies behavior must include tests.** No exceptions.
 
 See **[docs/TESTING.md](docs/TESTING.md)** for the complete guide, including:
-- The three-tier test taxonomy (Tier-1 deterministic → Tier-2 live smoke → Tier-3 prod synthetic)
-- How to add a connector parsing test and fixture
-- How to register a Tier-2 test route
-- The Red-Green-Refactor mandate
+- The three-tier test taxonomy (only Tier 1 runs in this repository)
+- How to add tests for a lane-sensitive change
+- The Red-Green-Refactor mandate and the coverage gate
 
 ### Quick reference
 
 ```bash
 # Tier-1 — must be green before merge
-cd website && npm run test:critical        # website critical-path
-cd sdk/python && pytest tests/ -m "not live"  # connector parsing
+cd sdk/python && pytest -m "not live"              # Python SDK
+cd sdk/js  && npx tsc --noEmit && npm test         # JS SDK
+cd sdk/mcp && npx tsc --noEmit && npm test         # MCP server
+node --test test/docs-claims.test.mjs test/workflow-hygiene.test.mjs
 
-# Tier-2 — live smoke for changed connectors (non-blocking)
-python connectors/tests/smoke_harness.py ryanair_direct
+# Live checks are on demand only (network + a card-backed token)
+cd sdk/python && LETSFG_BEARER_TOKEN=... pytest -m live
 ```
 
 ## Development Setup
@@ -104,6 +105,10 @@ fix: handle timeout in Python search client
 feat: add returnUrl option to JS unlock method
 docs: update MCP server README with new tool descriptions
 ```
+
+> AI agents working in this repository follow
+> [docs/working-agreement.md](docs/working-agreement.md) instead, which is why
+> their commit subjects carry no `fix:` / `feat:` prefix and no issue number.
 
 ## AI-Assisted PRs Welcome! 🤖
 

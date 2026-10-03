@@ -47,6 +47,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 
+from letsfg.config import atomic_write_json, credentials_store_path
 from letsfg.models import (
     AgentProfile,
     BookingResult,
@@ -61,21 +62,11 @@ DEFAULT_BASE_URL = "https://letsfg.co/developers"
 _log = logging.getLogger(__name__)
 
 
-# ── Config file persistence (~/.letsfg/config.json) ───────────────────────
-
-def _config_dir() -> Path:
-    """Return the LetsFG config directory, creating it if needed."""
-    if os.name == "nt":
-        base = Path(os.environ.get("APPDATA", Path.home()))
-    else:
-        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    d = base / "letsfg"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
+# ── Config file persistence (Developer API key; see letsfg.config) ────────
 
 def _config_path() -> Path:
-    return _config_dir() / "config.json"
+    """The Developer API key store. Resolution lives in letsfg.config."""
+    return credentials_store_path()
 
 
 def _load_config() -> dict:
@@ -90,16 +81,12 @@ def _load_config() -> dict:
 
 
 def _save_config(data: dict) -> None:
-    """Persist config to disk (owner read/write only)."""
+    """Persist config to disk (owner read/write only, atomically)."""
     p = _config_path()
     try:
         existing = _load_config()
         existing.update(data)
-        p.write_text(json.dumps(existing, indent=2), encoding="utf-8")
-        try:
-            p.chmod(0o600)
-        except Exception:
-            pass
+        atomic_write_json(p, existing)
     except Exception as e:
         _log.debug("Could not save config to %s: %s", p, e)
 

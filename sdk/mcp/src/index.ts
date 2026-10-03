@@ -28,14 +28,37 @@ import {
   firstListLength,
   parseRetryAfterMs,
   withEnvelope,
+  type Envelope,
 } from './envelope';
+
+/** The envelope for an API call that answered with a single object (a booking, a profile). */
+const OK_COMPLETE: Envelope = { status: 'ok', completeness: 'complete' };
+
+/**
+ * Wrap a single-object API outcome. Only for payloads that carry no result list:
+ * a list-bearing response goes through `withListEnvelope`, because "the list is
+ * missing" and "there is no list" are different claims.
+ */
+function withOutcomeEnvelope(result: Record<string, unknown>): Record<string, unknown> {
+  return withEnvelope(result, result.error ? envelopeForError(result) : OK_COMPLETE);
+}
+
+/**
+ * Wrap a search-shaped API response, classifying an empty result as
+ * `no_results` and an uncountable one as `partial` — never as "complete" or as
+ * "nothing found". (Same rule as `search_flights`.)
+ */
+function withListEnvelope(result: Record<string, unknown>, listKeys: string[]): Record<string, unknown> {
+  if (result.error) return withEnvelope(result, envelopeForError(result));
+  return withEnvelope(result, envelopeForData(firstListLength(result, listKeys)));
+}
 
 // ── Config ──────────────────────────────────────────────────────────────
 
 const BASE_URL = (process.env.LETSFG_BASE_URL || 'https://letsfg.co').replace(/\/$/, '');
 const BEARER_TOKEN = process.env.LETSFG_BEARER_TOKEN || '';
 const API_KEY = process.env.LETSFG_API_KEY || '';
-const VERSION = '1.3.1';
+const VERSION = '2026.5.78';
 
 // The bare token `letsfg-mcp/1.3.0` was being challenged by the edge in front of
 // letsfg.co from datacenter/VPS IPs — which is where MCP servers live — while a
@@ -523,11 +546,17 @@ const TOOLS = [
       '  needs_attention -> a human is looking at it; do NOT rebook\n\n' +
       'Do not rebook while the state is still moving, and do not treat a slow poll as a ' +
       'failure - the money is HELD, not taken, until the airline confirms. Refs last one hour ' +
-      'past the booking start.',
+      'past the booking start.\n\n' +
+      'On the Developer API lane (X-API-Key) book_flight returns a booking_id and the state is ' +
+      'read from /developers/api/v1/flights/bookings/{booking_id}: pass that booking_id as ' +
+      'booking_ref.',
     inputSchema: {
       type: 'object',
       properties: {
-        booking_ref: { type: 'string', description: 'The booking_ref book_flight returned' },
+        booking_ref: {
+          type: 'string',
+          description: 'The booking_ref (PFS) or booking_id (Developer API) that book_flight returned',
+        },
       },
       required: ['booking_ref'],
     },
@@ -887,8 +916,8 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
     }
 
     case 'resolve_location': {
-      const result = await resolveLocationCloud(args.query as string);
-      return JSON.stringify(result, null, 2);
+      const result = await resolveLocationCloud(args.query as string) as Record<string, unknown>;
+      return JSON.stringify(withListEnvelope(result, ['locations', 'airports', 'results', 'cities']), null, 2);
     }
 
     case 'unlock_flight_offer': {
@@ -926,7 +955,7 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
           passenger: passengers[0],
         };
         const result = await apiRequest('POST', '/api/agent-book', body) as Record<string, unknown>;
-        return JSON.stringify(result, null, 2);
+        return JSON.stringify(withOutcomeEnvelope(result), null, 2);
       }
       const body: Record<string, unknown> = {
         offer_id: args.offer_id,
@@ -935,8 +964,11 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
         contact_email: args.contact_email,
       };
       if (args.idempotency_key) body.idempotency_key = args.idempotency_key;
-      const result = await apiRequest('POST', '/developers/api/v1/bookings/book', body);
-      return JSON.stringify(result, null, 2);
+      // `/bookings/book` was retired on 2026-09-08 and answers 410 Gone; the JS
+      // SDK has always used this path. Sending the old one made every API-key
+      // booking fail with a 410 the agent could only read as a broken tool.
+      const result = await apiRequest('POST', '/developers/api/v1/flights/book', body) as Record<string, unknown>;
+      return JSON.stringify(withOutcomeEnvelope(result), null, 2);
     }
 
     case 'get_flight_booking': {
@@ -951,8 +983,16 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
           detail: 'Pass the booking_ref that book_flight returned.',
         }, null, 2);
       }
+      // The two lanes report a booking differently: PFS hands back a booking_ref
+      // polled at /api/agent-book/status; the Developer API a booking_id polled at
+      // /flights/bookings/{id}. Posting the PFS route with an X-API-Key only ever
+      // produced a 401, so the API-key lane went blind on a live charge.
+      if (!BEARER_TOKEN && API_KEY) {
+        const devResult = await apiRequest('GET',
+          `/developers/api/v1/flights/bookings/${encodeURIComponent(ref)}`) as Record<string, unknown>;
+        return JSON.stringify(withOutcomeEnvelope(devResult), null, 2);
+      }
       const result = await apiRequest('POST', '/api/agent-book/status', { booking_ref: ref }) as Record<string, unknown>;
-
       // A PAUSE IS NOT A STALL. `booking_in_progress` also covers a run that has
       // STOPPED holding a cart at the airline's seat map, at a paid extra, or at a
       // fare that moved - and the live-state message tells you to poll again in
@@ -977,7 +1017,7 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       }
       return JSON.stringify(withEnvelope(result, result.error
         ? envelopeForError(result)
-        : { status: 'ok', completeness: 'complete' }), null, 2);
+        : OK_COMPLETE), null, 2);
     }
 
     case 'answer_booking_question': {
@@ -1024,28 +1064,28 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       if (!resp.ok) {
         // The commonest refusal is a stale round or an expired cart, and both mean
         // the same thing here: stop answering, keep watching.
-        return JSON.stringify({
+        return JSON.stringify(withEnvelope({
           error: true,
           status_code: resp.status,
           detail: data?.error || data?.detail || 'refused',
           next_step:
             'Poll get_flight_booking again - the question may have expired or already been ' +
             'answered, and the booking carries on either way.',
-        }, null, 2);
+        }, envelopeForError({ status_code: resp.status, detail: data?.error || data?.detail })), null, 2);
       }
-      return JSON.stringify({
+      return JSON.stringify(withEnvelope({
         ok: true,
         kind,
         round: args.round,
         recorded: data,
         next_step: 'Keep polling get_flight_booking every 20-30 s until the state is terminal.',
-      }, null, 2);
+      }, OK_COMPLETE), null, 2);
     }
 
     case 'resolve_hotel_city': {
       const result = await apiRequest('POST', '/developers/api/v1/hotels/destinations',
-        { text: args.text as string });
-      return JSON.stringify(result, null, 2);
+        { text: args.text as string }) as Record<string, unknown>;
+      return JSON.stringify(withListEnvelope(result, ['destinations', 'cities', 'results', 'locations']), null, 2);
     }
 
     case 'search_hotels': {
@@ -1106,8 +1146,8 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       if (args.combination_id != null) body.combination_id = args.combination_id;
       if (args.hotel_name) body.hotel_name = args.hotel_name;
       if (args.idempotency_key) body.idempotency_key = args.idempotency_key;
-      const result = await apiRequest('POST', '/developers/api/v1/hotels/book', body);
-      return JSON.stringify(result, null, 2);
+      const result = await apiRequest('POST', '/developers/api/v1/hotels/book', body) as Record<string, unknown>;
+      return JSON.stringify(withOutcomeEnvelope(result), null, 2);
     }
 
     case 'get_hotel_booking': {
@@ -1115,13 +1155,13 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
         `/developers/api/v1/hotels/booking/${encodeURIComponent(args.booking_job_id as string)}`) as Record<string, unknown>;
       return JSON.stringify(withEnvelope(result, result.error
         ? envelopeForError(result)
-        : { status: 'ok', completeness: 'complete' }), null, 2);
+        : OK_COMPLETE), null, 2);
     }
 
     case 'cancel_hotel_booking': {
       const result = await apiRequest('POST', '/developers/api/v1/hotels/cancel',
-        { confirmation: args.confirmation as string });
-      return JSON.stringify(result, null, 2);
+        { confirmation: args.confirmation as string }) as Record<string, unknown>;
+      return JSON.stringify(withOutcomeEnvelope(result), null, 2);
     }
 
     case 'authenticate': {
@@ -1149,7 +1189,16 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       });
       // readJson, not resp.json(): a challenge page here used to throw a bare
       // SyntaxError at the agent, hiding the fact that enrollment never ran.
-      return JSON.stringify(await readJson(resp, '/api/agent-access/request'), null, 2);
+      const body = await readJson(resp, '/api/agent-access/request');
+      // A 402 here is the expected "connect a card" answer, not a failure: it
+      // carries add_card_url and `how`. Classifying it as a generic failure would
+      // make an agent report an outage where the API asked for a payment method.
+      const env: Envelope = body.error
+        ? (resp.status === 402
+          ? { status: 'auth_required', completeness: 'blocked', fix_hint_code: 'PAYMENT_REQUIRED' }
+          : envelopeForError(body))
+        : OK_COMPLETE;
+      return JSON.stringify(withEnvelope(body, env), null, 2);
     }
 
     // 'setup_payment' is no longer in the tool list; the case stays so an agent built against
@@ -1168,18 +1217,18 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       if (name === 'setup_payment' || args.token || args.payment_method_id) {
         // Say what changed rather than silently succeeding on a different lane: a caller
         // that passed a Stripe token needs to know the token did nothing.
-        const result = await apiRequest('POST', '/developers/api/v1/agents/connect-payment', {});
-        return JSON.stringify({
+        const result = await apiRequest('POST', '/developers/api/v1/agents/connect-payment', {}) as Record<string, unknown>;
+        return JSON.stringify(withEnvelope({
           note:
             'setup_payment and its token / payment_method_id arguments were retired on 2026-09-08 with ' +
             'Stripe; /agents/setup-payment answers 410 Gone. Anything you passed was ignored. This is ' +
             'the replacement, connect_payment: open connect_url in a browser to save a card. Nothing ' +
             'is charged.',
-          ...(result as Record<string, unknown>),
-        }, null, 2);
+          ...result,
+        }, result.error ? envelopeForError(result) : OK_COMPLETE), null, 2);
       }
-      const result = await apiRequest('POST', '/developers/api/v1/agents/connect-payment', {});
-      return JSON.stringify(result, null, 2);
+      const result = await apiRequest('POST', '/developers/api/v1/agents/connect-payment', {}) as Record<string, unknown>;
+      return JSON.stringify(withOutcomeEnvelope(result), null, 2);
     }
 
     case 'get_agent_profile': {
@@ -1195,8 +1244,8 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
             'carries no balance, and search and booking are free. Nothing to check.',
         }, null, 2);
       }
-      const result = await apiRequest('GET', '/developers/api/v1/agents/me');
-      return JSON.stringify(result, null, 2);
+      const result = await apiRequest('GET', '/developers/api/v1/agents/me') as Record<string, unknown>;
+      return JSON.stringify(withOutcomeEnvelope(result), null, 2);
     }
 
     case 'load_resources': {

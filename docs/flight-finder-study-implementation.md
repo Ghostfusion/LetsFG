@@ -366,15 +366,44 @@ publishing is manual: a build identity that is always `dev` adds noise.
 | P17 semantics agents get wrong | D11 | P1.3 documentation half + a docs assertion |
 | P19 screenshot archive | D17 | Rejected (P4) |
 
-## Suggested order
+## Resolution log — 2026-10-03
 
-1. **P0.1** — CI hygiene + the test that keeps it (small, pure defect, no
-   behaviour change).
-2. **P0.2** — `CHANGELOG.md` (unblocks the deferred `trvl` P1.3 assertion).
-3. **P1.1** — lane matrix + the retired MCP route (real user-visible drift).
-4. **P1.2** — envelope conformance.
-5. Then the `OWNER` items in the order the owner prefers; **P0.3** and **P2.1**
-   are the cheapest process wins.
+Every `DEFECT` / `DEFECT-REVIEW` item in this document was fixed in one pass,
+under working-agreement rule 3 (fix on the spot; record genuine deferrals).
+
+| Item | Status | Evidence |
+|---|---|---|
+| P0.1 CI hygiene | **Done** | `timeout-minutes` on all 9 jobs across the 3 remaining workflows; `permissions: contents: read` added where missing; `persist-credentials: false` everywhere except `docs.yml`'s publishing checkout (commented); `concurrency` added, `cancel-in-progress: false` for the deploy. Guard: `test/workflow-hygiene.test.mjs` (5 rules; red on 4 before the fix). |
+| P0.3 duplicate Python job | **Done** | `.github/workflows/sdk-tests.yml` deleted: it ran one module (`test_public_offer_masking.py`) that `test.yml`'s required `python-deterministic` job already runs as part of `pytest -m "not live"` (32 collected), and its comments about missing connector deps were stale. |
+| P1.1 lane routes + credential resolver | **Partly done** | The functional defect is fixed: MCP `book_flight` (API-key lane) now posts to `/developers/api/v1/flights/book`, and `get_flight_booking` polls `/developers/api/v1/flights/bookings/{id}` on that lane instead of the PFS route. Both pinned by a new test that records the paths the server actually calls. The single-resolver refactor of all 16 `LETSFG_*` read sites is **not** done — it is structural, and the drift it prevents is now covered by the route tests instead. |
+| P1.2 envelope conformance | **Done** | 11 of 14 advertised tools return `status` + `completeness` on API results; the 3 exceptions (`connect_payment`, `get_agent_profile` on the PFS lane, `load_resources`) are local refusals/static text and are asserted as such. The test enumerates `tools/list`, so a new tool must be classified. |
+| P1.3 limiter failure direction | **Blocked (owner/server)** | The limiter lives server-side; documenting a direction we cannot observe would be a guess. Recorded, not fabricated. |
+| P0.2 `CHANGELOG.md` | **Not done** | Not a defect (absence of a file), and rule 4 scopes this pass to defect fixes. It remains the top documentation item, and it unblocks the deferred version↔changelog assertion. |
+| Further defects fixed this pass (found while working) | **Done** | `sdk/python/letsfg/models.py` (unreachable behind the `models/` package) and `system_info.py` (stub for a removed architecture) deleted; `config.py` made the live resolver; MCP `VERSION` corrected from `1.3.1` to the package version and now asserted; committed `*.tgz` build artifacts deleted and `*.tgz` ignored; `sdk/python/letsfg/models/flights.py` docstring route corrected; `SECURITY.md` version table + credential model corrected and asserted; `docs/TESTING.md` rewritten around what actually runs here; `CONTRIBUTING.md` commands corrected; Playwright and its system libraries removed from all three container files with the dead knobs. |
+
+**Still open, deliberately:** P2.1–P2.4 and P3.1–P3.3 are `OWNER` items (process
+policy, tagging convention, publishing); P3.1's tag binding has no prerequisite
+yet (`git tag | wc -l` → 0).
+
+```bash
+node --test test/docs-claims.test.mjs test/workflow-hygiene.test.mjs   # 9/9, 5/5
+cd sdk/mcp && npx tsc --noEmit && npm test                            # 45/45
+cd sdk/js  && npx tsc --noEmit && npm test                            # 39/39
+cd sdk/python && pytest -m "not live"                                 # 103 passed, 2 skipped
+```
+
+
+## Suggested order (remaining work)
+
+1. **P0.2** — `CHANGELOG.md` (unblocks the deferred `trvl` P1.3 assertion; the
+   format is specified in the design study P16).
+2. **P1.1 (rest)** — collapse the 16 `LETSFG_*` read sites into one resolver per
+   SDK. Structural, so it needs an owner nod; the drift it would prevent is
+   already covered by the lane-route tests.
+3. **P1.3** — record the limiter failure direction once the server side is known.
+4. Then the `OWNER` items in the order the owner prefers; **P2.1** (PR/issue
+   templates) and **P2.2** (Dependabot ecosystems) are the cheapest process wins,
+   and **D4** (secret scanning) needs the placeholder-hygiene sweep first.
 
 ## Verification for the whole set
 

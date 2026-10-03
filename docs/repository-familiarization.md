@@ -70,7 +70,7 @@ Three independent client implementations of the same two lanes exist side-by-sid
 - `local.py` — PFS lane async functions `search_local/book_offer/booking_status`; 2 s polling, 90-poll cap, then a 90 s late-merge grace while `split_ticket_pending`/`gf_enrich_pending` (gated by `LETSFG_WAIT_FOR_SPLIT`). Single `_headers()` helper (UA `LetsFG-Python-SDK/1.0.3`, Cloudflare blocks urllib default).
 - `connectors/auth.py` — OAuth 2.1 + PKCE S256 with dynamic client registration, loopback `_CallbackServer`, token refresh with a rotating refresh token, `BearerTokenError`, retired-Stripe stubs.
 - `cli.py` — Typer commands: `search, auth, unlock(retired), book, booking, locations, register, recover, connect-payment/setup-payment, me`; loud non-fatal warning on paid-Dev-API commands.
-- `models/__init__.py` — dataclass DTOs with dual-shape `from_dict` (Developer vs Bearer field names). `models/flights.py` — pydantic v2 request/response models, timezone-aware duration backfill via `airport_tz`, `PublicFlightOffer` masking. `models.py` exists but is **shadowed** by the `models/` package (verified: `letsfg.models.__file__` → `models/__init__.py`). `config.py`/`system_info.py` are dead.
+- `models/__init__.py` — dataclass DTOs with dual-shape `from_dict` (Developer vs Bearer field names). `models/flights.py` — pydantic v2 request/response models, timezone-aware duration backfill via `airport_tz`, `PublicFlightOffer` masking. (`models.py`, which the package shadowed, and the unused `system_info.py` stub were deleted on 2026-10-03.) `config.py` now owns config-path resolution and atomic writes for both stores.
 
 **JS SDK** (`sdk/js/src/index.ts`) — `LetsFG` class, 18 `ErrorCode`s in 3 categories, `LetsFGError` + subclasses, `offerSummary`/`cheapestOffer`, hotels, retired stubs. `auth.ts` mirrors the Python PKCE flow. `ranking.ts` — the open-source **9-dimension / 12-weight-profile** ranker with constraint-gate hero selection. `offer-details.ts` — regex-based amenity/refund signal extraction. `trip-purpose.ts` — 11 `TripPurpose` values.
 
@@ -134,9 +134,9 @@ Persistence: `~/.letsfg/config.json` (tokens + optional API key), plugin per-she
 | `LETSFG_BASE_URL` | Override host | `https://letsfg.co` | no | local.py, auth.py, js, mcp, tools |
 | `LETSFG_WAIT_FOR_SPLIT` | `0` disables late-merge wait | wait enabled | no | local.py, js, mcp |
 | `LETSFG_USER_AGENT` | UA override (MCP) | built-in | no | mcp |
-| `~/.letsfg/config.json` `pfs_auth.{token,expires_at,refresh_token,client_id}` | Token store | — | PFS | auth.py, js auth, Panel.qml FileView |
-| `config.json` `api_key`, `agent_id` | Dev creds | — | Dev | client.py |
-| `APPDATA`/`XDG_CONFIG_HOME` | Config dir base | home | no | two divergent implementations (§14) |
+| `~/.letsfg/config.json` `pfs_auth.{token,expires_at,refresh_token,client_id}` | Token store (`letsfg auth`) | — | PFS | auth.py, js auth, Panel.qml FileView |
+| `api_key`, `agent_id` (credentials store: `%APPDATA%\letsfg`·`$XDG_CONFIG_HOME/letsfg`, POSIX) | Dev creds | — | Dev | client.py |
+| `APPDATA`/`XDG_CONFIG_HOME` | Config dir base | home | no | `letsfg/config.py` — one resolver for both stores (§18 risk 5) |
 | `manifest.json version` | Plugin version | 1.1.0 | — | Omarchy |
 
 Secrets live only in the config file (chmod 0600) or env; never bundled (plugin reads the CLI's file). `context7.json` embeds a Context7 *public* key (not a secret).
@@ -157,21 +157,20 @@ Secrets live only in the config file (chmod 0600) or env; never bundled (plugin 
 - Python PFS lane is `async` (`asyncio.sleep`), but HTTP itself is synchronous `urlopen`; OAuth callback runs a daemon thread.
 - JS/MCP are promise-based on a single Node event loop; search polling is sequential (one poll at a time).
 - QML is a single event-loop/thread; no worker threads. Concurrency is bounded by watchdog timers and a self-throttle (`MIN_SEARCH_INTERVAL_MS=5000`, breaker after 3 consecutive failures).
-- No batching/connection pools/multiprocessing. `docker-compose.yml`'s `LETSFG_MAX_BROWSERS` and Playwright volume refer to removed local-connector concurrency (stale).
+- No batching/connection pools/multiprocessing. `docker-compose.yml`'s `LETSFG_MAX_BROWSERS` and Playwright volume referred to removed local-connector concurrency — **removed 2026-10-03**.
 
 ## 11. Testing
 
 | Suite | Location | Framework | Status in this checkout |
 |---|---|---|---|
-| Python SDK | `sdk/python/tests/` (32 files) | unittest + pytest | **green after quarantine**: `pytest -m "not live"` → 99 passed, 0 errors; 19 stale modules are listed in `sdk/python/conftest.py` `collect_ignore_glob` (17 failed at import from missing `letsfg.connectors.*`, 2 failed at runtime) |
+| Python SDK | `sdk/python/tests/` | unittest + pytest | **green after quarantine**: `pytest -m "not live"` → 103 passed, 2 skipped, 0 errors; 19 stale modules are listed in `sdk/python/conftest.py` `collect_ignore_glob` (17 failed at import from missing `letsfg.connectors.*`, 2 failed at runtime) |
 | Python masking (advisory CI) | `test_public_offer_masking.py` | pytest | passes (deps pydantic only) |
-| JS SDK | `sdk/js/src/index.test.ts`, `auth.test.ts` | node:test via tsx | not run here (no node_modules) |
-| MCP | `sdk/mcp/src/index.test.ts`, `envelope.test.ts` | node:test via tsx | protocol smoke + contract guards + envelope unit/E2E; 41/41 pass (verified on Windows after the spawn harness fix) |
-| Plugin logic | `test/model-test.js` | homemade node harness | **PASS 537/537** (verified) |
+| JS SDK | `sdk/js/src/**/*.test.ts` | node:test via tsx | `tsc --noEmit` clean; 39/39 pass |
+| MCP | `sdk/mcp/src/index.test.ts`, `envelope.test.ts` | node:test via tsx | protocol + contract guards, envelope unit/E2E, per-lane routes, tool-list coverage; `tsc --noEmit` clean; 45/45 pass |
+| Repository guards | `test/docs-claims.test.mjs`, `test/workflow-hygiene.test.mjs` | node:test (zero deps) | 8/8 and 5/5 pass; required `docs-claims` CI job |
+| Plugin logic | `test/model-test.js` | homemade node harness | **PASS 537/537** (verified); not invoked by any workflow |
 | QML preview | `preview/run.py --strict` + fixtures | PySide6 | offline render/behaviour checks |
 | Plugin static rules | `tools/validate.sh`, `check-search-invariant.py` | Bash/Python | manual only, not in CI |
-| Repo docs claims | `test/docs-claims.test.mjs` | node:test (zero deps) | 6/6 pass; new required `docs-claims` CI job (versions, tool list, OpenAPI composition, local links) |
-| Plugin logic suite | `test/model-test.js` | node | 537/537 pass; not wired to CI |
 
 Strong coverage on: plugin logic/security, offer masking, per-lane field names, error taxonomy, hotel hold-then-capture contract. Light coverage: Python CLI end-to-end, live connectors (Tier-2 is private), auth refresh on the QML path (preview flags exist). `test/model-test.js` and `tools/validate.sh` are **not invoked by any workflow**.
 
@@ -211,16 +210,16 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 **Accurate:** AGENTS.md/README two-lane model, pricing/connect narrative, late-merge polling, error taxonomy (mostly), plugin security description (OMARCHY-PLUGIN.md).
 
 **Outdated / contradicts code (verified):**
-1. `docs/TESTING.md` + `CONTRIBUTING.md` reference `connectors/tests/smoke_harness.py`, `connectors/test_routes.py`, `website/tests/`, `growth-ops/`, `sdk/python/tests/fixtures/` — **none exist**.
+1. `docs/TESTING.md` + `CONTRIBUTING.md` referenced `connectors/tests/smoke_harness.py`, `connectors/test_routes.py`, `website/tests/`, `growth-ops/`, `sdk/python/tests/fixtures/` — **none exist**. **Fixed 2026-10-03:** TESTING.md was rewritten around what this repository actually runs (Tier-1 only, with tiers 2–3 labelled private-repo), and CONTRIBUTING.md's commands now match.
 2. 17 test modules imported `letsfg.connectors.{wizzair,vueling,emirates,skyscanner,tripcom,checkout_engine,…}`, absent since `f91be5b`, so `python-deterministic` CI failed. **Resolved 2026-10-03:** those 17 plus 2 runtime-stale modules (`test_india_user_surfaces.py`, `test_telemetry_enrichment.py`) are quarantined in `sdk/python/conftest.py`; the suite is green.
-3. `docker-compose.yml`/`Dockerfile(.python)`/`Dockerfile` install Playwright Chromium and document `--mode fast`, `LETSFG_MAX_BROWSERS`, `LETSFG_PROXY`, `LETSFG_NO_TELEMETRY` — all for removed local connectors.
+3. `docker-compose.yml`/`Dockerfile(.python)`/`Dockerfile` installed Playwright Chromium and documented `--mode fast`, `LETSFG_MAX_BROWSERS`, `LETSFG_PROXY`, `LETSFG_NO_TELEMETRY` — all for removed local connectors. **Fixed 2026-10-03:** browser and its system libraries removed from all three images, dead knobs dropped, headers corrected; the Python image is now a thin client (no Chromium download).
 4. `openapi.yaml`: server carried `…/developers/api/v1` **and** paths began `/api/v1/…` → every generated URL was double-prefixed. **Fixed 2026-10-03**: `servers[0].url` is now `https://letsfg.co/developers`, and `test/docs-claims.test.mjs` pins the composition. The spec is still a stale subset missing top-up/billing/rotate-key/discover/async/multi-search/sandbox paths documented elsewhere.
 5. `openapi.yaml` says API key prefix `trav_`; docs/examples use `letsfg_`.
 6. `register` guidance: AGENTS.md/SKILL.md/context7 say "never call `/agents/register`", but README, api-guide, api-onboarding, getting-started, cli-reference, mcp README and openapi's own description still present `letsfg register` as the auth path.
 7. Hotel credential: `docs/agent-guide.md` says Bearer tokens don't work for hotels; hotels.md/packages.md/AGENTS.md/context7 say either credential works.
-8. `SECURITY.md` version table says 1.0.x; actual 2026.5.x.
+8. `SECURITY.md` version table said 1.0.x; actual 2026.5.x. **Fixed 2026-10-03:** the table now tracks the shipped `2026.5.x` line per channel, and `test/docs-claims.test.mjs` asserts it against the manifests so it cannot drift again.
 9. `CLAUDE.md` claims Python has "zero external dependencies" and lists stdlib urllib — contradicted by pyproject; its repo map is stale.
-10. `models.py` (shadowed), `config.py`, `system_info.py` are dead; `client.py`'s connector registry/`test_checkout_engine_configs.py` reference absent modules.
+10. `models.py` (shadowed), `config.py`, `system_info.py` were dead; `client.py`'s connector registry/`test_checkout_engine_configs.py` reference absent modules. **Partly fixed 2026-10-03:** `models.py` and `system_info.py` deleted (the first was unreachable behind the `models/` package); `config.py` is now the live single resolver for both config stores.
 11. Version drift: MCP `VERSION='1.3.1'` vs npm `2026.5.78`; committed tarballs older than package.json; README minimums below current.
 12. MCP `book_flight` API-key branch posts to `/developers/api/v1/bookings/book` — a route AGENTS.md declares **retired (410)**; JS SDK correctly uses `/flights/book` (verified).
 13. AGENTS.md ranking sample uses wrong call shape (`{ranked}`, `wantsDirectFlight`, `_score.total`) and documents a non-existent `letsfg recover`.
@@ -275,19 +274,20 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 ## 18. Risk Areas
 
 1. **Per-lane field naming** — a single mistaken key silently ignores filters (documented past bugs in `local.py` and both SDKs). Any search-option change must be applied per lane.
-2. **MCP `book_flight` (API-key) targets a retired route** — real functional bug for Developer-tier MCP users.
-3. **Python test quarantine** — 19 stale modules are parked in `sdk/python/conftest.py`; the suite is green, but the quarantined files remain and must eventually be deleted or rewritten.
+2. **~~MCP `book_flight` (API-key) targets a retired route~~ Fixed 2026-10-03:** it posted to `/developers/api/v1/bookings/book` (410 Gone since 2026-09-08) and polled booking status on the PFS route. Both now use the Developer API paths the JS SDK always used, and `sdk/mcp/src/envelope.test.ts` records the routes the server actually calls.
+3. **Python test quarantine** — 19 stale modules are parked in `sdk/python/conftest.py`; the suite is green, but the quarantined files remain and must eventually be deleted or rewritten (`test/docs-claims.test.mjs` now fails if an entry points at a file that no longer exists).
 4. **QML monoliths** (`Panel.qml` 4.8k, `Model.js` 2.7k) with a shared closure-based session and strict invariants — easy to violate the single-`newRequest`/click-only-search rules.
-5. **Two config-path implementations** (`client.py` uses `XDG_CONFIG_HOME`; `auth.py` does not) → API key and PFS token can land in different files.
+5. **~~Two config-path implementations~~ Fixed 2026-10-03:** `client.py` and `connectors/auth.py` each resolved their own directory and wrote non-atomically. One resolver now lives in `letsfg/config.py`; both stores are named, documented, and written atomically at 0600 from creation (the token store carries a rotating refresh token, so a torn write used to force a new card connect).
 6. **Generated `assets/ranking.js` drift** if `sdk/js/src` changes without re-running `build-ranking.py`.
 7. **Docs-as-prompt surface** (AGENTS/SKILL/context7) directly instructs agents; wrong commands (e.g. `letsfg register`, non-existent `recover`, wrong ranking sample) cause real account/behaviour problems.
 8. **Stale OpenAPI** — the committed spec is a subset: generated clients will miss top-up/billing/discover/sandbox paths. The double-prefixed server URL was fixed 2026-10-03 and is now guarded by `test/docs-claims.test.mjs`.
 9. **JS SDK poll drops Authorization** while MCP sends it — auth handling asymmetry.
-10. **`models.py` shadowing** — a future edit to the wrong file does nothing.
+10. **~~`models.py` shadowing~~ Fixed 2026-10-03:** the unreachable module was deleted, so `letsfg/models/` is the only definition of the models.
+11. **CI hygiene drift** — before 2026-10-03 no job had a timeout, `sdk-tests.yml` had no `permissions:`, and only one workflow avoided persisting checkout credentials. All fixed, and `test/workflow-hygiene.test.mjs` now fails on any regression.
 
 ## 19. Open Questions / Unknowns
 
-- **~~Is `python-deterministic` intentionally red?~~ Resolved 2026-10-03:** it was red because 17 test modules imported connectors removed in `f91be5b`. Quarantined in `sdk/python/conftest.py`; `pytest -m "not live"` now yields 99 passed / 0 errors.
+- **~~Is `python-deterministic` intentionally red?~~ Resolved 2026-10-03:** it was red because 17 test modules imported connectors removed in `f91be5b`. Quarantined in `sdk/python/conftest.py`; `pytest -m "not live"` now yields 103 passed / 2 skipped / 0 errors.
 - **Are the connector test fixtures/modules expected to return?** They never existed in this history (`git log -- 'sdk/python/letsfg/connectors/checkout_engine.py'` empty). Likely a private-repo split; confirm intent before deleting.
 - **Which repo is canonical?** Origin is `Ghostfusion/LetsFG.git`; docs/metadata say `LetsFG/LetsFG`. Affects where PRs/CI run.
 - **Do the Developer API hotel endpoints (`/hotels/*`) still match openapi?** Docs describe a larger surface than the spec; live contract unverified (no network calls made).

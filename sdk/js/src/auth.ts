@@ -23,9 +23,9 @@
  * endpoint that mints a token from card details; a human approves once.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, renameSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 
@@ -66,8 +66,14 @@ function loadConfig(): StoredConfig {
 
 function saveConfig(cfg: StoredConfig): void {
   const p = configPath();
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, JSON.stringify(cfg, null, 2));
+  const dir = dirname(p);
+  mkdirSync(dir, { recursive: true });
+  // Owner-only from creation and renamed into place: this file holds the
+  // rotating refresh token, so a write interrupted halfway (or a chmod that
+  // lands after the bytes) would cost the user a new card connect.
+  const tmp = join(dir, `.${basename(p)}.${process.pid}.tmp`);
+  writeFileSync(tmp, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  renameSync(tmp, p);
   try {
     chmodSync(p, 0o600);
   } catch {

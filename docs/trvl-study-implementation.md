@@ -83,6 +83,8 @@ One test in `test_duration_timezone.py` appeared to fail but was **not** stale: 
 **Acceptance:** guard fails when reverted to `@v4`; passes on `main`.
 **Risk:** low; trvl's own guard is the reference.
 
+**Resolution (2026-10-03): SATISFIED, then guarded.** Every `uses:` in all four workflows was already pinned to a 40-char SHA with a trailing `# vX.Y.Z` comment (and `.github/dependabot.yml` exists to keep the pins current — the pairing the pinning depends on). The guard is now real: `test/workflow-hygiene.test.mjs` fails on any unpinned action, any missing version comment, any job without `timeout-minutes`, any workflow without `permissions:`, and any checkout that persists credentials outside a publishing job. It ran red on four counts before the accompanying fixes and is green after.
+
 ### P1.3 — Docs-claims and link test
 
 **Files:** new `test/docs-claims.test.mjs` (node, no deps — matches the existing root `test/model-test.js` harness style) or `sdk/python/tests/test_docs_claims.py`. Choose one; node avoids adding a Python test to an already-broken suite, so **node is recommended**.
@@ -178,6 +180,8 @@ Verified: `cd sdk/mcp && npx tsc --noEmit && npm test` → 41/41 pass.
 **Test:** js `auth.test.ts` — write, then attempt a second write with the temp creation forced to fail, assert original content survives; assert temp mode is `0600` on POSIX.
 **Risk:** low; reference trvl `internal/atomicjson/atomicjson.go:29-93`.
 
+**Resolution (2026-10-03): DONE.** `atomic_write_json(path, data)` in `sdk/python/letsfg/config.py` writes a sibling temp file at 0600, `fsync`s it, and `os.replace`s it onto the target; on any failure the temp file is removed and the previous file is untouched. `sdk/js/src/auth.ts` `saveConfig` does the same (temp + `renameSync`, `mode: 0o600`). Both replaced "write, then chmod", whose window left the rotating refresh token world-readable and whose torn write parsed as "not authenticated" — costing the user a new card connect. Tests: `sdk/python/tests/test_config_stores.py` (owner-only mode, replacement, and failure-keeps-previous-file).
+
 ### P3.2 — One config-path resolver per language + credential list
 
 **Files:** `sdk/python/letsfg/client.py` (drops the `XDG_CONFIG_HOME` branch or aligns), `sdk/python/letsfg/config.py` (dead — either delete or make canonical), `sdk/js/src/auth.ts`, `docs/working-agreement.md` (reference fix).
@@ -185,6 +189,10 @@ Verified: `cd sdk/mcp && npx tsc --noEmit && npm test` → 41/41 pass.
 **Acceptance:** a test asserts the Python and JS resolvers return the same path for a given `HOME`/`APPDATA`.
 **Test:** `sdk/python/tests/test_config_path.py` (new) + js `auth.test.ts`.
 **Risk:** low-medium — changing a path could orphan an existing user's token; migrate rather than move (read old path if new is absent).
+
+**Resolution (2026-10-03): DONE, with no path moved.** `sdk/python/letsfg/config.py` is now the single resolver: `token_store_path()` (the documented `~/.letsfg/config.json`, shared with the JS SDK) and `credentials_store_path()` (the Developer API key). `client.py` and `connectors/auth.py` both use it instead of their own implementations. Neither store's location changed, so nothing to migrate — but the two stores being *different files* is now documented rather than accidental. Independent corroboration that the token store is canonical: the QML plugin writes exactly that path (`Panel.qml:1199`, `Quickshell.env("HOME") + "/.letsfg/config.json"`), and it already writes atomically — `FileView` renames into the target directory (`Panel.qml:1141`).
+
+**Open (owner decision):** on Windows the two stores sit side by side as `%APPDATA%\.letsfg` and `%APPDATA%\letsfg` (differing only by the dot), which is still a footgun for a Developer-API user. Unifying them would move a credential file, so it is recorded here rather than done unilaterally.
 
 ---
 

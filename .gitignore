@@ -113,3 +113,6 @@ preview/home/
 *.token
 *-auth.json
 tools/_ranking_build/
+
+# Build artifacts: npm pack output is not committed
+*.tgz
