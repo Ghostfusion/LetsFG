@@ -3,7 +3,7 @@
 **Status:** design only. Nothing in this document is implemented, and none of it
 may be implemented as incidental work — see *Scope and working agreement* at the
 end.
-**Date:** 2026-10-03 (revision 2, after owner review #2)
+**Date:** 2026-10-03 (revision 3, after the owner's decisions on the open questions)
 **Purpose:** design a continuously running system that watches a pool of
 destinations over flexible dates in First Class, detects genuinely unusual fares,
 and alerts on them — instead of merely returning the cheapest fare available at
@@ -11,6 +11,18 @@ the moment it was asked.
 **Depends on:** [`trvl-study-design.md`](trvl-study-design.md) (MCP contracts,
 status/completeness/freshness, client reliability) — the *client* layer this
 system is built on top of.
+
+> **What changed in revision 3.** The seven open questions are now **decisions**
+> (§12), and they are normative V1 rules: a separate scanner repository, SQLite +
+> WAL with append-only observations as the source of truth, a hard account-budget
+> reservation that protects interactive use, ECB daily FX with a 24-hour freshness
+> rule, verification that is per-candidate logically but batched operationally
+> (`N = 5` initially), explicit provider-level `cabin = FIRST` with
+> evidence-only product quality, and an ≥80% *objective* alert-precision target
+> measured without user behaviour. §9 is new and specifies the four metrics, the
+> alert-opportunity record, the 24h/72h observation window, and the
+> SHADOW → CALIBRATION → PRODUCTION rollout that calibrates the provisional
+> thresholds.
 
 > **What changed in revision 2.** The architecture is frozen as-is; this revision
 > fixes contract precision. Review #2's eight pre-implementation items are
@@ -143,7 +155,7 @@ result (§6.5).
 
 | # | Requirement | Acceptance criteria |
 |---|---|---|
-| **R1** | **First Class is a first-class dimension.** Not `cabin = any` with client-side filtering. | Every scan carries the cabin explicitly (`F`); no stored observation is cabin-ambiguous; a scan that returned mixed cabins is a bug |
+| **R1** | **First Class is a first-class dimension.** Not `cabin = any` with client-side filtering. | Every scan carries the cabin explicitly (`F`); no stored observation is cabin-ambiguous; a scan that returned mixed cabins is a bug; **a candidate whose provider reports Business or Economy cannot enter the scanner** (§7.2, decision 6 in §12) |
 | **R2** | **Destination pool.** Many destinations from one or more origins. | A policy with N destinations produces N route-date plans; `discover` is used for the ranking pass where the lane allows it |
 | **R3** | **Origin pool.** Multiple origins as a first-class concept. | Same as R2, per origin; the planner may weight origins independently |
 | **R4** | **Departure flexibility.** An earliest/latest window. | A window of D days expands to D discrete search dates; expansion is explicit and auditable |
@@ -186,6 +198,7 @@ FareObservation
     amount · currency                 # as returned
     original_amount · original_currency   # immutable copy of `amount`/`currency`
     evaluation_amount · evaluation_currency · fx_rate · fx_source · fx_at   # §7.1
+    fx_status                         # fresh | stale | not_required (§7.1, decision 4)
     taxes_included                    # true | false | unknown — never assume
     price_comparability               # comparable | non_comparable | unknown (§7.1)
 
@@ -294,6 +307,8 @@ FareEvaluation
                             # | seasonal_insufficient | incomparable   (see below)
   historical_percentile     # null when the baseline is not established
   absolute_discount         # vs median, in currency and percent
+  rankable · rankable_reason    # same_currency | fx_fresh | fx_stale
+                                # | incomparable | insufficient_history  (§7.1)
   
   price_opportunity_score   # 0–100 — how cheap (§7.2)
   travel_quality_score      # 0–100 — how good the itinerary is (§7.2)
@@ -372,7 +387,7 @@ Every skipped unit carries a reason. Distinguishing a *decision* from a *failure
 is the same discipline as the status contract:
 
 ```
-budget          # the plan exceeded its allowance
+budget_exhausted   # the scanner allocation is spent — never the interactive reserve (§6.6)
 rate_limit      # the account's limiter refused
 policy_pruned   # the user's own filters excluded it
 dedupe          # identical to a unit already planned
@@ -382,6 +397,8 @@ fresh_enough    # last successful search is newer than the cadence requires
 `fresh_enough` is deliberately not "budget exhausted": *"we searched this twenty
 minutes ago and the cadence is three hours"* is a scheduling decision, and
 lumping it with budget starvation is how a planner's logs stop being usable.
+`budget_exhausted` is terminal for the run — the Planner stops creating work, and
+never borrows (§6.6).
 
 ### 6.4 What the Planner must never do
 
@@ -392,16 +409,71 @@ apart, and the same distinction applies here.
 ### 6.5 Verification is budget-gated
 
 Verification is a second search, so it is ranked and capped, never applied to
-every result:
+every result.
+
+**Logically per candidate, operationally batched** (decision 5, §12). Each
+candidate keeps its own verdict, but the planner is free to issue the work in one
+batch where the interface allows it:
 
 ```
-candidates ranked by:  overall_opportunity · confidence · expected alert value
-verify top N           where N is constrained by the remaining budget
+VerificationRequest[]  →  LetsFG batch operation if available  →  VerificationResult[]
 ```
+
+Where candidates share an origin and differ only by destination,
+`POST /flights/multi-search` is that batch operation — and note honestly that it
+saves **round trips, not budget**: it bills one search per destination, exactly
+like individual searches.
+
+**Ranking**, then verify the top candidates:
+
+```
+1. price_opportunity_score    2. confidence
+3. completeness               4. expected alert value        5. recency
+```
+
+**How many.** `verify_top_n = 5` per scanner run is the V1 default — enough to
+surface several exceptional fares without letting verification dominate a 70-search
+daily allocation. **5 is a calibration parameter, not a permanent constant**
+(§9.6). The long-run rule is dynamic, not fixed:
+
+```
+N = min(configured_max, candidates_above_verification_score_threshold, remaining_verification_budget)
+```
+
+If only two candidates clear the threshold, `N = 2`: never verify five merely
+because five is the maximum.
 
 "100 candidates → 100 verification searches" is forbidden without an explicit
 budget gate. If the budget cannot verify a candidate, the candidate is logged as
 unverified — not alerted on a stale price (§8).
+
+### 6.6 The account budget is a hard reservation
+
+The scanner and interactive use share one account allowance (100 searches/day on a
+PFS card), so the allocation is a **reservation**, not a shared pool (decision 3,
+§12):
+
+```yaml
+account_budget:
+  daily_limit: 100
+  interactive_reserved: 30     # never touched by the scanner
+  scanner_max: 70
+```
+
+```
+scanner_available = daily_limit - interactive_reserved - scanner_consumed
+```
+
+Three rules make this a guarantee rather than a hope:
+
+1. **The scanner may never consume the interactive reserve** — not even if it left
+   its own allocation unused earlier in the day. The safety property is: *the
+   scanner can never starve interactive use.*
+2. **Discovery, search and verification all consume the scanner allocation.** The
+   budget is one pool for all three, which is why verification is ranked and capped
+   (§6.5) instead of applied to every result.
+3. **Exhaustion is terminal for the run** (`budget_exhausted`, §6.3): the Planner
+   stops creating work and does not borrow from the reserve.
 
 ## 7. Deal engine
 
@@ -456,17 +528,43 @@ An all-in $5,900 must never be compared against a $6,400 base fare plus $600 of
 taxes. `unknown` is excluded from the baseline and lowers `confidence` — missing
 data reduces confidence, it does not license an assumption.
 
-**Currency normalization.** Ranking across currencies is meaningless without a
-declared policy:
+**Currency normalization (decision 4, §12).** Ranking across currencies is
+meaningless without a declared policy:
 
 ```
-display_currency = evaluation_currency = the user policy's currency
-original_amount · original_currency      # preserved verbatim
-fx_rate · fx_source · fx_at              # how the conversion was made, and when
+display_currency = evaluation_currency = the user policy's currency (USD in V1)
+original_amount · original_currency      # preserved verbatim, always
+fx_rate · fx_source · fx_at              # ECB daily reference rate + snapshot time
+fx_status                                # fresh | stale | not_required
 ```
 
-FX rates are timestamped and the source is recorded, because a stale rate can
-turn a 2% fare difference into a fake 5% deal.
+**Source and freshness:** ECB reference rates, daily snapshot, **24-hour freshness
+tolerance** (a V1 policy parameter, not a scientific truth). Daily is sufficient
+because this system detects anomalies over days, weeks and months — a 30-minute FX
+move is not what decides whether a First-Class fare is exceptional.
+
+**Stale FX does not get used silently.** The rule is explicit, including the
+same-currency exception that would otherwise punish a user for a feed outage:
+
+```
+if fare.currency == evaluation_currency:      rankable = true    # no conversion needed
+elif fx_age <= 24h:                           rankable = true    # fx_status = fresh
+else:                                         rankable = false   # fx_status = stale
+                                              confidence = insufficient
+                                              alert_eligible = false
+```
+
+The distinction that matters: **stored ≠ rankable ≠ alertable.**
+
+```
+observation = valid (stored, with its original currency)
+evaluation  = deferred (rankable = false, reason = fx_stale)
+alert       = prohibited
+```
+
+A JPY 850,000 fare with a stale rate is stored as `raw_price = 850000 JPY`; the
+system does not pretend to know its USD equivalent well enough to rank it — and
+ranks it again the moment the feed refreshes.
 
 **Window and sample size.** 90 days is an **illustration, not a V1 default**:
 
@@ -507,12 +605,28 @@ Confidence:        0.92
 Overall:           91
 ```
 
-**`cabin_product_quality` is neutral in V1.** "First Class" does not tell us
-whether the product is an international suite or a domestic recliner, and nothing
-in our API distinguishes them (§2, open question 5). So the component stays
-neutral (`unknown`) and **does not lower the score** — it lowers nothing at all,
-it simply does not contribute. Guessing a First product from aircraft type is
-explicitly rejected.
+**`cabin_product_quality` — three levels, and neutral when unknown** (decision 6,
+§12). The hard part is not detecting "First Class"; it is not lying about *which*
+First Class.
+
+| Level | What it requires | Effect |
+|---|---|---|
+| 1 — cabin verification | The provider explicitly returns `cabin = FIRST` | **Required to qualify at all.** A result that says Business or Economy cannot enter the scanner, however cheap |
+| 2 — product evidence | Retain `aircraft`, `flight_number`, `operating_carrier`, `fare_brand`, `booking_class`, `cabin_description`, seat/product description when present | Evidence, stored for later use — not a judgement |
+| 3 — product quality | Enough explicit product information to classify `known_high` / `known_standard` / `known_regional` | Contributes to `travel_quality_score` **only** at this level |
+
+**`unknown` is neutral in both directions.** It does not lower the score and it does
+not raise it; it reduces `confidence` and nothing else. That means:
+
+```
+aircraft = 777   →  premium First        REJECTED (heuristic)
+airline  = ANA   →  good First           REJECTED (heuristic)
+product_quality = unknown                ACCEPTED — and the component stays neutral
+```
+
+A verified-cabin ANA First on a 777 with no suite information is a perfectly valid
+candidate: `cabin = verified First`, `product_quality = unknown`. We simply do not
+claim to know whether it is ANA's best First product.
 
 **Confidence is evidence quality, never a multiplier on the scores.**
 
@@ -536,10 +650,12 @@ low-confidence candidate is logged for the operator rather than alerted.
 
 Every number in §7–§8 is an **initial configuration value, not a discovered
 truth**: `percentile <= 15`, `confidence >= 0.7`, the score bands (`0–49` normal
-… `95–100` exceptional), `max_window_days = 180`, `min_samples = 30`. They require
+… `95–100` exceptional), `max_window_days = 180`, `min_samples = 30`,
+`verify_top_n = 5`, `fx freshness = 24h`, the ≥80% precision target. They require
 calibration against accumulated observations before anyone treats them as
-production defaults — which is precisely what R10 (deterministic replay) exists to
-make possible.
+production defaults — which is exactly what R10 (deterministic replay) and the
+shadow-mode rollout in §9.5–§9.6 exist to make possible. Until calibration has run,
+they are policy defaults, and the system should say so when it explains an alert.
 
 ### 7.4 The LLM explains, it does not decide
 
@@ -582,7 +698,132 @@ Price opportunity 96 · Travel quality 81 · Confidence 0.92
 - **Quiet hours and rate caps** belong to the policy and are enforced here; the
   Deal Engine has no idea what time it is.
 
-## 9. Deliberate non-goals
+## 9. Alert quality: metrics, calibration, rollout
+
+The scanner's success criterion is not "did it find cheap fares" but "did it find
+genuinely exceptional fares **and avoid crying wolf**". That needs metrics before
+it needs thresholds.
+
+### 9.1 Four metrics, reported separately
+
+| Metric | Definition | Answers |
+|---|---|---|
+| **Objective alert precision** | `TP / (TP + FP)` | "When you alert me, how often is it genuinely good?" |
+| **Alert rate** | alerts per day | "How noisy is the system?" |
+| **Coverage (recall)** | `TP / (TP + FN)` | "How many opportunities are we missing?" |
+| **User utility** | optional feedback signal | "Did the user personally find it useful?" |
+
+These are deliberately not merged. `objective precision = 91%` with
+`user utility = 68%` is a perfectly possible, non-contradictory state: a fifth of
+the genuinely excellent fares may have been to destinations the user could not
+visit. That is not the algorithm being wrong.
+
+### 9.2 The evaluation unit is an alert opportunity
+
+Every candidate gets an outcome label, whether or not it became an alert:
+
+```
+alert_id · offer_identity · alerted_at
+price_opportunity_score · confidence · price · historical_percentile
+verification result · subsequent price movement
+user_judgment? · objective_outcome
+```
+
+**True positive** — an alert that satisfies the predefined opportunity criteria
+(verified, First Class, `completeness == complete`, percentile within the policy
+bound) **and** remains valid after verification.
+
+**False positive** — an emitted alert that failed those criteria. The two canonical
+shapes:
+
+```
+initial price $5,700  →  verification $8,900      # the price did not hold
+percentile 8%         →  corrected baseline 48%   # the baseline was wrong
+```
+
+**Two rules that stop the system learning the wrong lesson:**
+
+> **An ignored alert is neither a true positive nor a false positive.**
+> **A booked alert is not automatically a true positive.**
+
+Clicks and bookings measure user behaviour, not alert correctness: an excellent
+fare can arrive when a traveller simply cannot go, and a mediocre fare can be
+booked by someone who urgently needed to travel. Objective precision is measured
+against the criteria above; user behaviour is captured separately as utility.
+
+Optional feedback is therefore recorded as a distinct, non-authoritative signal:
+
+```
+user_feedback: useful | not_useful | too_expensive | wrong_product
+             | wrong_dates | unable_to_travel | booked | ignored
+```
+
+### 9.3 V1 targets
+
+```
+Primary     objective alert precision >= 80%     (eventually 85–90% if coverage stays useful)
+Secondary   <= 2 high-priority alerts per day
+Tertiary    maintain useful opportunity coverage
+```
+
+Why the rate cap matters as much as precision: 20 alerts a day is annoying even at
+90% precision, while **one excellent alert every few days may be worth more than
+all of them**. The objective is not "find everything" — it is "tell me when
+something unusually good appears". A 95% precision target is deliberately *not* the
+starting point: it would make the scanner so conservative that it rarely speaks.
+
+### 9.4 Measuring alerts nobody acted on
+
+Every alert gets a fixed observation window:
+
+```
+alerted_at  →  24h verification window  →  72h outcome window
+```
+
+(Window lengths are policy parameters, set by how long the observed fare stays
+actionable.) The question asked at the end of the window is objective:
+
+> Was the opportunity real and attractive, regardless of whether anyone clicked?
+
+```
+alert:   ORD → NRT  ANA First  $5,900  percentile 8%
+verify:  $5,950          (the price held)
+48h:     $6,800          (the opportunity closed)
+```
+
+That is a **successful alert** even though the user did nothing: the system
+correctly identified a genuinely cheap fare.
+
+### 9.5 Rollout: SHADOW → CALIBRATION → PRODUCTION
+
+```
+SHADOW        observe-only. No user alerts. Collect candidates, scores,
+              verification results and subsequent price movement.
+   ↓
+CALIBRATION   limited alerts. Measure precision, alert rate, coverage.
+   ↓
+PRODUCTION    thresholds frozen into a version. Any change requires a new
+              evaluator_version / policy_version (§5.5) and a replay (R10).
+```
+
+Shadow mode is the reason the versioning and replay requirements exist: it produces
+the labelled history that makes calibration possible at all.
+
+### 9.6 How the thresholds actually get calibrated
+
+Do **not** tune `percentile <= 15` and `confidence >= 0.70` directly. First collect
+the shadow dataset, then evaluate a grid:
+
+```
+percentile ∈ {5, 10, 15, 20}   ×   confidence ∈ {0.60, 0.70, 0.80}
+        → precision / coverage curve per configuration
+```
+
+`verify_top_n = 5` (§6.5) is calibrated the same way and for the same reason:
+measure alert yield per verification search at `N ∈ {3, 5, 10}` and keep the best,
+rather than assuming a value.
+
+## 10. Deliberate non-goals
 
 | Not building | Why |
 |---|---|
@@ -590,11 +831,12 @@ Price opportunity 96 · Travel quality 81 · Confidence 0.92
 | LLM-driven deal decisions | Non-reproducible, unexplainable, cannot be back-tested (§7.4) |
 | Any provider/scraper/anti-bot work | Not ours — engine is server-side (study's architectural principle) |
 | Speculative alerts on unverified prices | The one failure that destroys trust fastest (§5.4, §8) |
-| Guessing First-Class product quality from aircraft type | The data does not support it (§7.2) |
+| Guessing First-Class product quality from aircraft type or airline | The data does not support it (§7.2, decision 6) |
 | A local cache of bookable offers | Offers expire in ~15 minutes; a cache of expired offers is a liability |
 | Booking automation in v1 | Alerts first; booking is a human decision with real money attached until precision is proven |
+| Learning from clicks and bookings as if they were correctness | They measure user circumstance, not alert quality (§9.2) |
 
-## 10. Implementation priority
+## 11. Implementation priority
 
 | Phase | Content | Status |
 |---|---|---|
@@ -602,9 +844,9 @@ Price opportunity 96 · Travel quality 81 · Confidence 0.92
 | **P1A** contract correctness | `status` · `completeness` · `freshness` · verified-vs-indicative in the client contract | Status/completeness landed; `freshness` next |
 | **P1B** structured MCP output | `outputSchema` · `structuredContent` · content separation | Not started |
 | **P2A** scanner data model | `FareObservation` · `ItineraryIdentity`/`OfferIdentity` · persistence (append-only) · `FareState` projection | Not started |
-| **P2B** planner | policy validation · volume estimate · budget · fan-out · cadence · `fresh_enough` | Not started |
-| **P3** intelligence | cohort baseline · `baseline_status` · two scores + confidence · calibrated thresholds · replay harness (R10) | Not started |
-| **P4** user experience | alerts (one format) → then, only if needed, a UI · natural-language policy input · LLM explanation | Not started |
+| **P2B** planner | policy validation · volume estimate · budget reservation (§6.6) · fan-out · cadence · `fresh_enough` | Not started |
+| **P3** intelligence | cohort baseline · `baseline_status` · two scores + confidence · FX normalization · replay harness (R10) · **shadow-mode collection (§9.5)** | Not started |
+| **P4** user experience | **calibration (§9.6) then alerts (one format)** → only if needed, a UI · natural-language policy input · LLM explanation | Not started |
 | **P5** optimization | destination prioritization · adaptive scan frequency · budget optimization · anomaly detection | Not started |
 
 **Why P1A is split from P1B, and P2A from P2B** (review #2): the contract fields
@@ -614,36 +856,106 @@ model must be validated against real observations before the scheduler is writte
 on top of it — a scheduler built first would encode assumptions the data model has
 not yet earned.
 
-## 11. Open questions
+**Alerts do not switch on at the end of P3.** P3 ends with a populated shadow
+dataset; P4 begins with calibration against it (§9.5–§9.6), and only then do alerts
+become user-visible.
 
-1. **Where does this system live?** *(Recommendation: a separate scanner
-   repository/service — `first-class-fare-scanner/` with `policy`, `planner`,
-   `storage`, `evaluator`, `scheduler`, `alerts`, depending on LetsFG as a
-   library.)* This repository is a *client* repository; giving it a scheduler,
-   database and alert delivery would erode the separation the rest of this design
-   depends on. Must be decided before P2.
-2. **Storage engine?** *(Recommendation: SQLite with WAL, append-only observation
-   table, derived state/baseline tables.)* One user, tens of thousands of
-   observations, a single scheduler, no concurrent writers — a distributed database
-   buys nothing here.
-3. **How is the account budget shared** between the scanner and interactive use on
-   the same card? The policy must allocate, not compete.
-4. **FX policy** (§7.1): which source, what staleness tolerance, and what happens
-   when `fx_at` is too old to rank on?
-5. **Is verification batched or per-candidate** (§6.5), and what is the default
-   `N` before calibration?
-6. **How is a "First Class product" verified** (§7.2)? Until it can be, the
-   component stays neutral.
-7. **What is the alert-precision target** that calibrates §7.3's provisional
-   thresholds — and how is precision measured on alerts the user did not act on?
+## 12. Decisions (resolved)
+
+The seven questions this design left open were decided by the owner on 2026-10-03.
+They are **normative V1 rules**; where a number is a calibration parameter rather
+than a rule, it says so.
+
+**1. Where it lives — a separate repository/service.**
+`first-class-fare-scanner/` with `policy/`, `planner/`, `storage/`, `evaluator/`,
+`scheduler/`, `alerts/`, `letsfg_client/`, depending on LetsFG as a library.
+Decision rule:
+
+> **LetsFG owns flight-search access. The First-Class Fare Scanner owns search
+> policy, scheduling, persistence, evaluation and alerting.**
+
+Putting those into the client would turn a search client into a search client plus
+a database, a scheduler, historical analytics and alert delivery — violating the
+boundary the rest of this design rests on. **P0 architectural decision.**
+
+**2. Storage — SQLite with WAL.**
+Tables: `fare_observation` (immutable raw observations), `fare_state`, `baseline`,
+`fare_evaluation`, `search_run`, `alert_event` (alert lifecycle / dedupe state).
+
+> **`fare_observation` is the source of truth. Everything else is recomputable.**
+
+`fare_state` is never used as the historical source of truth — that is what makes
+R10 replay possible. Postgres is deferred, and the trigger is *not* size:
+
+```
+switch when: multiple workers writing concurrently at scale
+           · multiple users/accounts
+           · remote or shared deployment
+           · high-availability requirement
+           · external services need direct database access
+```
+
+**3. Account budget — a hard reservation, never a shared pool.**
+For a 100-search/day account: `interactive_reserved = 30`, `scanner_max = 70`.
+The scanner may not consume the interactive reserve **even if it left its own
+allocation unused earlier that day**, so the safety property is absolute: the
+scanner can never starve interactive use. Discovery, search and verification all
+consume the scanner allocation. Exhaustion is terminal for the run
+(`budget_exhausted`, §6.3) with no borrowing. Rates are configurable (§6.6).
+
+**4. FX — ECB daily reference rates, 24h freshness, same-currency exemption.**
+Original amount and currency are always preserved; conversion carries
+`fx_rate`/`fx_source`/`fx_at`/`fx_status`. A same-currency fare needs no conversion
+and stays rankable even during a feed outage. Cross-currency fares with stale FX
+are **stored but not rankable and not alert-eligible** until fresh rates arrive:
+`observation = valid · evaluation = deferred · alert = prohibited`. 24h is a V1
+policy parameter (§7.1).
+
+**5. Verification — logically per candidate, operationally batched.**
+V1 verifies the **top 5 eligible candidates per run**, within the remaining scanner
+budget, ranked by `price_opportunity_score`, `confidence`, `completeness`, expected
+alert value, recency. `N = 5` is a calibration parameter, not a permanent constant;
+the long-run rule is
+`N = min(configured_max, candidates_above_threshold, remaining_verification_budget)`
+(§6.5).
+
+**6. First-Class product verification — explicit cabin, evidence-based quality,
+neutral when unknown.**
+A candidate must have provider-level `cabin = FIRST` to qualify at all. Product
+quality is classified only from explicit itinerary/product evidence
+(`known_high` / `known_standard` / `known_regional`); otherwise
+`product_quality = unknown`, which is **neutral** — it neither helps nor hurts the
+score, and reduces confidence. Inferring a First product from airline or aircraft
+is rejected (§7.2).
+
+**7. Alert precision — ≥80% objective, measured without user behaviour.**
+Initial target **≥80% objective alert precision** (eventually 85–90% if coverage
+remains useful), secondary cap **≤2 high-priority alerts/day**, tertiary
+"maintain useful coverage". Precision is measured against the predefined objective
+criteria (§9.2), **not** clicks, bookings or any user action. User feedback is a
+separate utility signal. Thresholds stay provisional and are calibrated in shadow
+mode before being frozen into a versioned production policy (§9.3–§9.6).
+
+**One further rule adopted with decision 7:**
+
+> **An ignored alert is neither a true positive nor a false positive.**
+
+**The four metrics are reported separately:** objective precision · alert rate ·
+coverage · user utility (§9.1).
 
 ## Scope and working agreement
 
 This document **plans**; it does not authorise changes. Working-agreement rule 4
-("never make code changes unless they are defects") applies in full: the scanner
-is new scope and needs an explicit owner decision — starting with open question 1
-— before any code exists. Until then the only permitted work is the client
-contract it depends on (P1A/P1B) and defect fixes.
+("never make code changes unless they are defects") applies in full.
+
+Where the scanner lives is now decided (§12, decision 1): a **separate
+repository/service**, with LetsFG as a library. That decision keeps rule 4 intact for *this* repository —
+the scanner is not built here, so nothing in this design may be landed as
+incidental work inside the client. The only permitted work in this repository
+remains the client contract the scanner depends on (P1A/P1B) and defect fixes.
+
+Starting the scanner itself still needs an explicit go-ahead from the owner, and it
+begins in the other repository, at P2A (§11) with the data model.
 
 **Traceability.**
 
@@ -656,7 +968,7 @@ contract it depends on (P1A/P1B) and defect fixes.
 | D12 verified-vs-indicative in the contract, policy elsewhere | §5.4, §7.1, §8 |
 | `discover` / `multi-search` billing semantics | §6.1 (two-phase scan, volume estimate) |
 
-**Review provenance.** Reviewed twice by the owner on 2026-10-03.
+**Review provenance.** Reviewed three times by the owner on 2026-10-03.
 
 - *Review #1* — architecture: accepted the six-layer split (now seven with the
   Policy Validator), the deterministic-score rule, the LLM-as-explanation rule,
@@ -670,4 +982,14 @@ contract it depends on (P1A/P1B) and defect fixes.
   alert cooldown (§8); deterministic replay (R10); Policy Validator, volume
   estimate and `fresh_enough` (§3, §6); provisional labelling of every threshold
   (§7.3); verification made a budget-gated alert gate rather than a search phase
-  (§6.5); SQLite/WAL and separate-repository recommendations (§11).
+  (§6.5); SQLite/WAL and separate-repository recommendations (§12).
+- *Review #3* — the open questions decided as normative V1 rules (§12): separate
+  scanner repository (with the ownership decision rule), SQLite + WAL with
+  `fare_observation` as the only source of truth (and explicit Postgres migration
+  triggers), the interactive-reserve budget reservation (§6.6), the ECB/24h FX rule
+  with the same-currency exemption (§7.1), batched per-candidate verification with
+  `N = 5` and a dynamic rule (§6.5), the three-level First-Class product model with
+  neutral `unknown` (§7.2), and the ≥80% objective alert-precision target with the
+  four-metric evaluation framework, observation window and shadow-mode rollout
+  (§9). One further rule adopted: **an ignored alert is neither a true positive nor
+  a false positive** (§9.2).
