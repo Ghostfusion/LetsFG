@@ -22,135 +22,191 @@ references in `§` point there.
 | `DEFERRED` | Recorded, deliberately not done yet, with the reason. |
 
 Promise discipline: no item may be marked done on the strength of a plan, a
-scaffold or a green unit test that does not exercise the real provider.
+scaffold, or a green unit test that does not exercise the real provider.
+
+**What changed in review #1 (2026-10-03).** P1 is now a **contract freeze** between
+evidence and implementation rather than a set of incidental unit tests; the probe
+gained the two decisive experiments (cache behaviour, `selected_flights_json`
+semantic equivalence) and must emit a machine-readable **capability profile**;
+verification became a comparison with four outcomes; completeness became relative
+to a declared coverage contract; the 429 classifier became fail-safe; and provider
+price context got its own type instead of being called a baseline.
 
 ---
 
-## 2. Phase P0 — probe the provider (`PROBE`, gating)
+## 2. Phase P0 — provider contract probe (`PROBE`, gating)
 
-The adapter's freshness rules cannot be finished without this. Design §7 D10
-makes it a gate, not an optimisation.
+Design §17. The adapter's freshness, verification and completeness rules cannot be
+finished without this, so it is a **gate**, not an optimisation.
 
-### P0.1 A `live`-marked probe script `PROBE` `OWNER`
+### P0.1 A `live`-marked probe script and its capability profile `PROBE` `OWNER`
 
-**Files:** new `sdk/python/tests/test_serpapi_live.py` (or a script beside
-`sdk/python/google_checkout_live_sweep.py`'s location if tests are the wrong home).
+**Files:** new `sdk/python/tests/test_serpapi_live.py` (or a script in the
+`google_checkout_live_sweep.py` neighbourhood if tests prove the wrong home), plus
+a committed capability-profile JSON.
 
-**Change:** the eight measurements in design §17, each recording the raw response
-as a committed fixture. The script MUST:
-- refuse to run unless `SERPAPI_API_KEY` is set **and** an explicit opt-in env flag
-  is set (`LETSFG_SERPAPI_PROBE=1`), so no workflow and no casual `pytest` run can
-  fire it;
-- be marked `live` so the existing `pytest -m "not live"` exclusion covers it;
-- print a redacted request summary (never the URL — the key is a query parameter,
-  design §14 D8);
+**Change:** the experiments in P0.2–P0.8, each recording raw responses as fixtures.
+The script MUST:
+- refuse to run unless `SERPAPI_KEY` is set **and** an explicit opt-in env flag is
+  set (`LETSFG_SERPAPI_PROBE=1`), so neither CI nor a casual `pytest` run can fire
+  it;
+- be marked `live`, so the existing `pytest -m "not live"` exclusion covers it;
+- print a redacted request summary — **never the URL** (the key is a query
+  parameter, design §14);
 - fetch the account/plan endpoint before and after the quota-consuming probes.
 
-**Acceptance:** the fixture set exists; each **[UNVERIFIED]** marker in design §4
-is either resolved with the observed value or re-stated with the measurement that
-failed to resolve it. **Cost:** single-digit searches plus the deliberate
-empty-result probe.
+**Acceptance:** fixtures committed; the capability profile written with a citation
+for every `true`/`false` and an explicit `null` for every contract still blocked;
+every **[UNVERIFIED]** marker in design §4 resolved or re-stated as open.
 
-**Risk:** consumes quota on the owner's key; the empty-result probe spends a search
-to prove a search is spent.
+### P0.2 Cache behaviour on one query `PROBE`
 
-### P0.2 Resolve `search_metadata` and decide `observed_at` `PROBE`
+**Change:** `Q`, `Q` again, `Q + no_cache=true`; record `search_metadata.id`,
+timestamps, price and itinerary identity.
 
-**Change:** from P0.1's fixtures, decide whether a trustworthy provider timestamp
-exists. If yes, `observed_at_basis: provider` becomes available and design §7 rule
-3 is written; if no, rule 1 (`no_cache=true` for anything alertable) stands
-permanently.
+**Acceptance:** a definite answer to *is a cache hit detectable?* and *does any
+timestamp move?* This decides design §7 rule 5 and the capability profile's
+`cache_detectable` / `provider_timestamp` fields.
 
-**Acceptance:** one paragraph in the design replacing "**[UNVERIFIED]**", citing the
-fixture file and the observed key set.
+### P0.3 Semantic equivalence of `selected_flights_json` `PROBE`
 
-### P0.3 Record the 429 bodies and `Retry-After` `PROBE`
+**Change:** search A → choose itinerary I → `selected_flights_json(I)` → compare
+against search B on segment identity, dates, flight numbers, carrier, cabin, price.
 
-**Change:** capture both 429 causes (throughput; quota exhausted) as verbatim
-bodies, plus whether `Retry-After` is present.
+**Acceptance:** answers **same itinerary? same fare? same price?** — not "HTTP
+200". This is what makes design §8.1's `verified` outcome reachable or permanently
+unreachable, and it is the single most important experiment in P0.
 
-**Acceptance:** two recorded bodies usable directly as test fixtures for P1.2.
+### P0.4 `search_metadata` and the observation timestamp `PROBE`
 
-### P0.4 Resolve the baseline windows (feeds D11) `PROBE`
+**Change:** the full key set on a fresh and a cache-hit response; is there a
+trustworthy provider-stamped time? (Decides whether `observed_at_basis: provider`
+ever exists, design §7.)
 
-**Change:** determine `price_history`'s granularity/horizon and what window
-`deals.average_price` averages over.
+**Acceptance:** if yes, one paragraph of the design cites the fixture field; if no,
+`provider_fetch` stands as the strongest claim available and the design says so.
 
-**Acceptance:** if unresolved, D11 stays as written — provider baselines remain
-non-rankable — and the design says so explicitly rather than implying they are
-usable.
+### P0.5 The 429 bodies, and `Retry-After` `PROBE`
+
+**Change:** capture both 429 causes verbatim — the quota wording and the throughput
+wording — plus whether `Retry-After` is present.
+
+**Acceptance:** two recorded bodies usable directly as the fixtures for P1.4, and a
+recorded yes/no on `Retry-After`. Deliberate quota consumption must be accepted for
+this probe, or the quota case stays unmeasured and `rate_limit_unknown` carries it.
+
+### P0.6 Provider price-context windows `PROBE`
+
+**Change:** determine `price_history`'s granularity and horizon, and what window
+`deals.average_price` averages over; and the `price_level` enum.
+
+**Acceptance:** if unresolved, `ProviderPriceContext` stays non-rankable and
+non-alertable (design §9 D15) and the profile says `null` — it is **not** promoted
+on a guess.
+
+### P0.7 Quota accounting `PROBE`
+
+**Change:** is an empty-but-successful search billable? (account endpoint before and
+after). Confirm that a failing search is not.
+
+**Acceptance:** the three counters in design §10 are correct as written, or the
+plan's ledger table is corrected with evidence.
+
+### P0.8 Coverage delta `PROBE`
+
+**Change:** the same query with and without `deep_search` / `show_hidden`: how many
+itineraries appear, and does `total_duration` disagree with its own segments?
+
+**Acceptance:** a measured `coverage_delta_deep`, and a live re-check of the
+duration defect in design §12.1.
 
 ---
 
-## 3. Phase P1 — contracts and guards that need no network (`CODE`, `OWNER`)
+## 3. Phase P1 — contract freeze and guards (`CODE`, `OWNER`)
 
-Cheap, high-value, and provable with recorded fixtures. Still new test files, so
-still gated.
+Turns measured evidence into frozen types and the tests that hold them. Free of
+network; still new test files, so still gated.
 
-### P1.1 Enum-trap constants and assertions `CODE`
+### P1.1 Freeze the contract types `CODE`
 
-**Files:** the adapter's request-builder module (P2.1) plus its test.
+**Files:** the adapter's types module (P2.1) or a shared contract module.
 
-**Change:** named constants for `stops` (`0`/`1`/`2`/`3` →
-any/nonstop/≤1/≤2) and **two separate** `travel_duration` enums, because deals and
-explore number them differently (design §12.2). Assertions that
-`include_airlines ⊥ exclude_airlines`, `departure_token ⊥ booking_token`,
-`selected_flights_json ⊥ {tokens, multi_city_json}`, `no_cache ⊥ async`.
+**Change:** encode the decided axes as types, from design §7/§8/§8.1/§9/§10:
+`observed_at_basis` (three values), `coverage_mode` (four), the four verification
+outcomes, `ProviderPriceContext`, and the three ledger counters.
 
-**Acceptance:** a test that fails if either enum is shared, or if a raw stop count
-can be passed through. **Why it matters:** both traps are silent — they produce a
-valid request with the wrong meaning.
+**Acceptance:** no call site can construct an observation without a basis and a
+coverage mode; a verification result cannot be represented as a bare `FlightOffer`.
+**Why:** these are precisely the fields review #1 found being over-claimed in prose;
+types make the over-claim require a deliberate act.
 
-### P1.2 429 classification `CODE`
+### P1.2 The duration invariant `CODE`
 
-**Files:** adapter error-mapping module + test.
+**Change:** a regression test that a multi-stop fixture whose provider `total_duration`
+drops the layover still yields a route total that **includes** it (design §12.1).
 
-**Change:** map 429 to `rate_limited` (transient) or `budget_exhausted`
-(terminal-for-the-run) by message, using P0.3's recorded bodies as fixtures; map
-400/401/403/404/410/5xx per design §11. Honour `Retry-After` when present, else
-bounded exponential backoff with jitter.
-
-**Acceptance:** both 429 fixtures classify correctly; a *quota* 429 is never
-retried; a *throughput* 429 is retried and then resumed. This is the single
-sanctioned prose-parsing site (design §11) and the test is what makes it
-sanctioned.
+**Acceptance:** fails if the adapter ever pre-fills a total or uses
+`model_construct` to bypass the validators. Existing precedent:
+`sdk/python/tests/test_duration_timezone.py`.
 
 ### P1.3 Credential redaction `CODE`
 
-**Files:** the adapter's HTTP layer + test.
+**Change:** no log line, exception message, metric label, trace attribute or
+telemetry detail may contain the request URL or the key; the key is read from
+`SERPAPI_KEY` only and never written to a config store.
 
-**Change:** no log line, exception message or report may contain the request URL
-or the `api_key` value; the adapter uses the env var only and never writes the key
-to a config store.
+**Acceptance:** a test that forces a transport error and asserts the key is absent
+from the exception text **and** from captured logs/metrics/trace output.
 
-**Acceptance:** a test that forces a transport error and asserts the key does not
-appear in the exception text or captured logs. **Why:** the key travels in the
-query string, so a naive `raise f"... {url}"` leaks it — this is the first lane in
-the repo where that rule is load-bearing (design §14).
+### P1.4 The 429 classifier `CODE`
 
-### P1.4 Completeness honesty `CODE`
+**Change:** fail-safe classification per design §11: known quota body →
+`budget_exhausted` (terminal); known throughput indication → `rate_limited`;
+anything unrecognised → `rate_limit_unknown` (transient, bounded backoff, body
+retained). Honour `Retry-After` when present, never require it.
 
-**Change:** a filtered or non-deep search returns `completeness: partial`;
-only an unfiltered, `deep_search=true` + `show_hidden=true` search may claim
-`complete`. An empty-but-successful response is `no_results` with the completeness
-that its coverage allows — a filtered empty set is never `complete` (design §12.2 —
-the provider's own "increase `max_duration` by up to 200 minutes" advice proves the
-filters are lossy).
+**Acceptance:** both recorded bodies (P0.5) classify correctly; an unknown body
+lands in `rate_limit_unknown` and is **never** guessed; a quota 429 is never
+retried.
 
-**Acceptance:** a table-driven test over the four cases; no case in which a
-provider-side filter can produce `complete`.
+### P1.5 Completeness relative to declared coverage `CODE`
 
-### P1.5 Docs-claims additions `DOCS`
+**Change:** completeness derives from the declared `coverage_mode`, not from a
+provider switch: a `standard`-declared search that returns the standard result set
+is not `partial` merely because a deeper mode exists; a filtered or `unknown`-
+coverage result can never be `complete`; an empty success is `no_results` with
+completeness per the declared contract.
+
+**Acceptance:** a table-driven test over the cases, including the two that review #1
+caught: `deep_search=false` ≠ `partial`, and empty success ≠ `complete`.
+
+### P1.6 `lowest_price` is not a baseline `CODE`
+
+**Change:** a contract test pinning design §9 rule 1 — `ProviderPriceContext.lowest_price`
+may never be used as, or compared against, a baseline.
+
+**Acceptance:** the invariant is asserted structurally (the type does not reach the
+baseline path) rather than by convention.
+
+### P1.7 Enum traps and typed request models `CODE`
+
+**Change:** named constants for `stops` (`0`/`1`/`2`/`3`) and **two separate**
+`travel_duration` enums (deals vs explore number them differently); a request model
+per mode (design §12.3) so `return_date` on a one-way request, or both tokens at
+once, cannot be constructed.
+
+**Acceptance:** a test that fails if either enum is shared or if a raw stop count
+can be passed through; invalid combinations unrepresentable rather than asserted.
+
+### P1.8 Docs-claims additions `DOCS`
 
 **Files:** `test/docs-claims.test.mjs`; design §4/§10 tables.
 
-**Change:** assert that the two new documents are present in the MkDocs nav, and
-that the provider's quota/limit table still matches what the docs claim (a
-`PARKED_TEST_MODULES`-style pin is the precedent; use the cheapest equivalent that
-would actually catch a stale copy).
+**Change:** assert the quota/limit table and the provider's documented facts still
+match what the docs claim, and that the two documents are in the MkDocs nav.
 
-**Acceptance:** `node --test test/docs-claims.test.mjs` green, and red if the nav
-entry or a documented limit is removed without updating the other side.
+**Acceptance:** `node --test test/docs-claims.test.mjs` green, and red if one side
+of a documented pair is edited alone.
 
 ---
 
@@ -158,55 +214,63 @@ entry or a documented limit is removed without updating the other side.
 
 ### P2.1 Module and provider registry `CODE` `OWNER`
 
-**Files:** `sdk/python/letsfg/connectors/serpapi_google.py`; a provider registry /
-factory that is empty without `SERPAPI_API_KEY`.
+**Files:** `sdk/python/letsfg/connectors/serpapi_google.py`; a provider registry
+that is empty without `SERPAPI_KEY`.
 
-**Note:** this module path is historically taken — a `serpapi_google` connector
-existed here before the connectors were removed, and its measured defects are
-recorded in `sdk/python/letsfg/models/flights.py`. Reusing the name is deliberate
-(preserves the historical link) but the new module shares no code with the old one.
+**Note:** the path is historically taken — a `serpapi_google` connector existed here
+before the connectors were removed, and its measured defects live in the comments of
+`sdk/python/letsfg/models/flights.py`. Reusing the name keeps the historical link;
+no code is shared with the old module.
 
 **Acceptance:** importing the client without the key does not import the adapter;
-the registry exposes exactly the methods in design §13.
+the registry exposes exactly the methods in design §13 (`booking_options` excluded).
 
 ### P2.2 Mapping to `FlightOffer` `CODE`
 
-**Change:** map segments to `FlightSegment`/`FlightRoute` **without** setting
-totals, so the existing validators compute gate-to-gate durations (design §12.1,
-D2); record provenance (provider, engine, `search_metadata.id`, currency, query
-params); set `price_status` at the design §5 ceiling; run public exposure through
-the existing `to_public_offer`.
+**Change:** segments → `FlightSegment`/`FlightRoute` with **no pre-filled totals**
+(P1.2); full provenance per design §6 (`request_kind`, `cache_mode`,
+`coverage_mode`, `retrieval_mode`, minimised query, `search_metadata.id`); status at
+or below the design §5 ceiling; public exposure through the existing
+`to_public_offer`.
 
-**Acceptance:** a recorded `google_flights` fixture for a multi-stop itinerary
-yields a route total that **includes** the layover — i.e. a regression test that
-would fail if the provider's own total were ever trusted.
+**Acceptance:** a recorded multi-stop fixture produces a layover-inclusive total and
+a complete provenance block; an observation missing `search_metadata.id` is refused.
 
 ### P2.3 Budget ledger `CODE`
 
-**Change:** per-provider ledger honouring design §10: success-with-results and
-success-with-empty consume; failures and cache hits do not; throughput ceiling is
-the plan's searches/hour.
+**Change:** `ProviderRequest` / `ProviderSearch` / `BillableSearch` per design §10.
 
-**Acceptance:** a test proving `budget_exhausted` is terminal for the run and that
-the scanner's reserve is never touched.
+**Acceptance:** a test proving `budget_exhausted` is terminal for the run, that cache
+hits and failures are not billable, and that the scanner's interactive reserve is
+never touched.
 
-### P2.4 Provider conformance suite `CODE`
+### P2.4 `ProviderPriceContext` `CODE`
 
-**Change:** one conformance suite run against every provider (the two existing
-lanes and this one), asserting the shared properties: status ceiling, provenance
-present, freshness basis never fabricated, `no_results` ≠ `timeout`, public shape
+**Change:** carry provider price fields as `ProviderPriceContext`, stored as
+provider claims, separable in the evaluation record, non-rankable and non-alertable
+until P0.6 resolves their semantics.
+
+**Acceptance:** a test that a `ProviderPriceContext` value cannot reach the baseline
+path or the alert path.
+
+### P2.5 Provider conformance suite `CODE`
+
+**Change:** one suite run against **every** provider (both existing lanes and this
+one): status ceiling, provenance present, freshness basis never fabricated,
+`no_results` ≠ `timeout`, completeness relative to declared coverage, public shape
 sanitised.
 
-**Acceptance:** the suite passes for the existing lanes **before** the adapter is
-registered, so it cannot be written to fit the newcomer.
+**Acceptance:** green on the existing lanes **before** the adapter is registered, so
+the suite cannot be written to fit the newcomer.
 
 ---
 
 ## 5. Phase P3 — scanner wiring (`OTHER REPO`)
 
-Out of scope here. Belongs to the scanner repository described in
-[`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §11;
-this repo's obligation ends at the provider contract.
+Out of scope here. Belongs to the scanner repository: planner → scheduler →
+observation store → verification → alerting
+([`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §11).
+This repo's obligation ends at the provider contract.
 
 ---
 
@@ -226,15 +290,14 @@ this repo's obligation ends at the provider contract.
 `_japan_longhaul.json`, `_longhaul_london_us.json`, ≈51 KB total).
 
 **Status:** raised to the owner on 2026-10-03; no decision taken. Recorded as a
-deferral, not silently fixed — deleting them is destructive and they are not mine
-to remove. If the answer is "delete", it is a one-commit defect fix; if it is
-"keep", the script should at least stop looking runnable (a header note).
+deferral, not silently fixed — deleting them is destructive and they are not mine to
+remove. If the answer is "delete", it is a one-commit defect fix; if it is "keep",
+the script should at least stop looking runnable (a header note).
 
 ### D-2 No automated proof that the sweep artifacts are stale `DEFECT` `DEFERRED`
 
 Related to D-1: nothing pins those JSON files to the connector that produced them,
-so they will silently rot if kept. Deferred with D-1 — the decision is the same
-one.
+so they will silently rot if kept. Deferred with D-1 — it is the same decision.
 
 ---
 
@@ -243,9 +306,9 @@ one.
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
 | O1 | **Is SerpApi a provider lane we own?** (provider acquisition is owner-reserved) | All of P2 | §16 D1 |
-| O2 | **Provide a key for the probe**, accepting quota consumption on it | P0 | §17 |
-| O3 | **Which plan tier**, if any — Free (≈8 searches/day) cannot do scanner duty; Starter is ≈33/day at $25/mo | Cost model | §16 D12 |
-| O4 | **Legal Shield**: the scraping indemnity starts at $150/mo, and ZeroTrace (no retention) is enterprise-only — accept, or route only non-personal queries through this lane | Procurement | §4.3, §14 |
+| O2 | **Provide a key for the probe**, accepting quota consumption on it — including the deliberate quota-consuming probes (P0.5, P0.7) | P0 | §17 |
+| O3 | **Which plan tier**, if any — Free cannot sustain broad scanning but is fine for development, shadow collection and narrow monitoring; Starter is the first tier for continuous operation | Cost model | §16 D12 |
+| O4 | **Legal Shield**: the scraping indemnity starts at $150/mo and ZeroTrace (no retention) is enterprise-only — accept, or route only non-personal queries through this lane | Procurement | §4.3, §14 |
 | O5 | **Fate of the dead sweep script and its four JSON artifacts** | D-1 | §6 above |
 
 ---
@@ -254,19 +317,27 @@ one.
 
 | Item | Design ref | Depends on | Verification |
 |---|---|---|---|
-| P0.1 | §17 | O2 | probe fixtures committed |
-| P0.2 | §7 | P0.1 | the `[UNVERIFIED]` marker is replaced |
-| P0.3 | §11 | P0.1 | two recorded 429 bodies |
-| P0.4 | §9, D11 | P0.1 | documented or explicitly unresolved |
-| P1.1 | §12.2 | — | test fails if enums are shared |
-| P1.2 | §11, D4 | P0.3 | both 429 fixtures classify correctly |
-| P1.3 | §14, D8 | — | transport-error test asserts no key in text/logs |
-| P1.4 | §7, §12.2 | — | table-driven; no filtered path yields `complete` |
-| P1.5 | §4, §10 | — | `node --test test/docs-claims.test.mjs` |
-| P2.1 | §13, D1 | O1 | import-without-key test |
-| P2.2 | §5, §12.1, D2 | P2.1 | multi-stop fixture total includes the layover |
-| P2.3 | §10, D9 | P2.1 | budget ledger test |
-| P2.4 | §13 | P2.1, P2.2 | conformance suite green on existing lanes first |
+| P0.1 | §17 | O2 | fixtures + capability profile committed |
+| P0.2 | §7 | P0.1 | `cache_detectable` / `provider_timestamp` answered |
+| P0.3 | §8.1 | P0.1 | same-itinerary / same-price answered |
+| P0.4 | §7 | P0.2 | `observed_at_basis: provider` exists or is ruled out |
+| P0.5 | §11 | P0.1 | two 429 bodies + `Retry-After` recorded |
+| P0.6 | §9, D15 | P0.1 | windows documented or explicitly `null` |
+| P0.7 | §10 | P0.1 | empty-is-billable confirmed |
+| P0.8 | §12.1 | P0.1 | coverage delta + duration re-check |
+| P1.1 | §7, §8.1, §9, §10 | P0 | contract types frozen |
+| P1.2 | §12.1 | — | layover-inclusive total |
+| P1.3 | §14 | — | no key in text/logs/metrics/trace |
+| P1.4 | §11, D4 | P0.5 | both bodies classify; unknown → `rate_limit_unknown` |
+| P1.5 | §7.1, §11, D17 | — | table-driven completeness cases |
+| P1.6 | §9, D15 | — | `lowest_price` cannot reach the baseline |
+| P1.7 | §12.2, §12.3 | — | shared enum / raw stop count fails the test |
+| P1.8 | §4, §10 | — | `node --test test/docs-claims.test.mjs` |
+| P2.1 | §13, D1 | O1, P1.1 | import-without-key test |
+| P2.2 | §5, §6, §12.1 | P2.1, P1.2 | multi-stop fixture + provenance block |
+| P2.3 | §10, D9 | P2.1 | ledger test |
+| P2.4 | §9, D15 | P2.1, P0.6 | context cannot reach baseline or alert |
+| P2.5 | §13 | P2.1, P2.2 | green on existing lanes first |
 
 ---
 
@@ -274,10 +345,10 @@ one.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Design + implementation documents, MkDocs nav | **Done** | This document and its companion, listed in `mkdocs.yml`; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
-| P0 probe | **Not started** | Needs O2 |
-| P1.1–P1.5 guards | **Not started** | Gated by rule 4 (new files) |
-| P2 adapter | **Not started** | Gated by O1 |
+| Design + implementation documents (incl. review #1 revision) | **Done** | This document and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
+| P0.1–P0.8 probe | **Not started** | Needs O2 |
+| P1.1–P1.8 contract freeze + guards | **Not started** | Gated by rule 4 (new files) |
+| P2.1–P2.5 adapter | **Not started** | Gated by O1 |
 | P3 scanner wiring | **Out of scope** | Other repository |
 | D-1, D-2 sweep leftovers | **Deferred** | Raised 2026-10-03; awaiting O5 |
 
@@ -286,9 +357,11 @@ one.
 ## 10. Order of work
 
 1. **O1, O2, O3, O4** — owner decisions. Nothing else moves without them.
-2. **P0** — probe, and close every `[UNVERIFIED]` in the design.
-3. **P1** — the guards that need no network (cheapest real value in this plan).
+2. **P0** — probe; the two decisive experiments (P0.2 cache, P0.3 semantic
+   equivalence) first, then the rest; emit the capability profile.
+3. **P1** — freeze the contracts the evidence supports, with the guards that hold
+   them. This is the last cheap step before any adapter code exists.
 4. **P2** — the adapter, starting with the conformance suite against the *existing*
-   lanes so the newcomer has to fit, not the other way round.
-5. **D-1/O5** — settle the leftovers whenever the owner answers; it is independent
-   of everything above.
+   lanes so the newcomer has to fit rather than the other way round.
+5. **D-1/O5** — settle the leftovers whenever the owner answers; independent of
+   everything above.

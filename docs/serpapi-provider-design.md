@@ -33,15 +33,31 @@ and it must never present itself as able to.
 
 ## 2. Why a second provider
 
-The LetsFG-only design has four capability gaps that SerpApi closes. Each is
-traced to the document where the gap is currently acknowledged.
+The LetsFG-only design has four capability gaps SerpApi can **contribute** to.
+None of them is *closed* by the provider alone: every row below is a
+**supplementary signal** whose semantics are unmeasured until the probe (§17) has
+run. Each is traced to the document where the gap is currently acknowledged.
 
 | Gap | Where it hurts | What SerpApi provides |
 |---|---|---|
-| **No pre-computed baseline** — "is this price unusually low?" requires us to build per-cohort baselines ourselves | [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §7.1, the most expensive unsolved part of the scanner | `price_insights.typical_price_range` + `price_level` on every `google_flights` response, and `deals.average_price` + `discount_percentage` per destination |
-| **No native flexible-date window** — `discover` prices are indicative and there is no date-range parameter anywhere | scanner §6 planner, which must fan out | `google_flights_deals` takes `outbound_date` as a **range** with `trip_length`/`travel_duration`; `google_travel_explore` takes `month` |
+| **No provider-side price context** — "is this price unusually low?" requires us to build per-cohort baselines ourselves | [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §7.1, the most expensive unsolved part of the scanner | A **`ProviderPriceContext`** (§9): `typical_price_range`, `price_level`, `price_history` on every `google_flights` response, and `average_price` + `discount_percentage` per destination. **Supplementary, not a replacement** for the cohort baseline until the provider's window and cohort semantics are measured |
+| **No native flexible-date *discovery* window** — `discover` prices are indicative and there is no date-range parameter anywhere | scanner §6 planner, which must still fan out for authoritative search | `google_flights_deals` takes `outbound_date` as a **range** with `trip_length`/`travel_duration`; `google_travel_explore` takes `month`. This is deal/date-window **discovery**, not authoritative flexible-date itinerary search |
 | **No way to pin an itinerary and re-price it** | scanner §6.5 verification step | `selected_flights_json` — pin an itinerary segment-by-segment by flight number + date |
 | **A published failure contract is absent** — the limiter's behaviour is `UNKNOWN` pending the Q8 probe | [`trvl-study-design.md`](trvl-study-design.md) §6 Q8; the scanner's scheduler is blocked on it | SerpApi documents its status codes, its 429 causes, and what does and does not consume quota (§11) |
+
+The capabilities are **not interchangeable**, and the difference decides what the
+scanner may build on each:
+
+```
+LetsFG lanes                   flexible-date authoritative itinerary search   ✗
+SerpApi deals / explore        flexible-date deal discovery                   ✓
+SerpApi google_flights         specific-date itinerary observation            ✓
+SerpApi selected_flights_json  itinerary pinning → verification candidate     ✓  (semantics unmeasured, §8)
+```
+
+So the scanner's primitive chain is unchanged — candidate → specific date →
+authoritative search → observation — and deals/explore can only feed the first
+step, as a richer form of what `discover` already does.
 
 A fifth, weaker benefit: `google_travel_explore` generates destination pools from
 interests (`beach`, `skiing`, `outdoors`, …) inside a six-month window, which the
@@ -66,7 +82,7 @@ Rules:
 1. **No new public MCP tool, no new REST route, no SDK surface change.** The
    adapter is an internal data source; it is exposed only through the existing
    client contracts.
-2. **Optional.** Absent `SERPAPI_API_KEY`, the adapter is absent. Nothing in the
+2. **Optional.** Absent `SERPAPI_KEY`, the adapter is absent. Nothing in the
    core client may import it at module scope.
 3. **No hard dependency.** The adapter uses the standard library's HTTP client —
    not SerpApi's `google-search-results` package. Rationale: that package is
@@ -75,6 +91,11 @@ Rules:
 4. **One direction only.** The adapter produces *observations*. Ranking,
    scoring, thresholds and alert policy live elsewhere (scanner §7, §9) — the
    provider is not allowed to know what "unusually cheap" means.
+5. **No manufacture from absence.** A field the provider omitted, or a mode the
+   provider did not honour, is recorded as **unknown** — never inferred as
+   `false`, `complete`, or "not available". Absence of evidence in a response is
+   not evidence about the world, and this rule is what stops the adapter
+   quietly acquiring provider-specific semantics.
 
 ---
 
@@ -200,15 +221,19 @@ that is not listed here does not exist.
 | `discover` (destination pool) | `google_travel_explore` (`month`, `interest`, `travel_mode`, `arrival_area_id`) | `discover` | `indicative` |
 | `discover` (deals from an origin) | `google_flights_deals` (`outbound_date` range, `trip_length`) | `discover` | `indicative` |
 | `search` | `google_flights` (`type`, dates, filters) | `search` | `observed` |
-| `verify` | `google_flights` + `selected_flights_json` | `verify` | `verified` |
+| `verify` | `google_flights` + `selected_flights_json` | `verify` | **verification candidate only** — the operation may emit `verified` *only* when a comparison (§8.1) matches identity and price; until then the result stays `observed` |
 | next-leg / return leg | `google_flights` + `departure_token` | `search` | `observed` |
-| booking options (referral) | `google_flights` + `booking_token` | `search` | `observed` — **never `verified`, never alertable as bookable** (§8) |
+| booking options (referral) | `google_flights` + `booking_token` | `search` | `observed` — **never `verified`, never alertable as bookable** (§8). **Not part of V1** (§13) |
 | schedule/ops context (optional) | `engine=google` + `flight_result` | — | never a price |
 
 `deals.price` and `explore.flight_price` are **not** bookable and are not the
 result of a search for a specific itinerary: they enter the store as `indicative`,
 which the scanner already excludes from the bookable baseline and from alerting
 (scanner §7.1).
+
+The third column is an **operation ceiling**, not a promise: every request also
+carries its `request_kind` in provenance (§6), because the same engine can serve
+`search` and `verify` and the stored observation must say which one produced it.
 
 ---
 
@@ -225,46 +250,102 @@ which the scanner already excludes from the bookable baseline and from alerting
   not a canonical city identity. Canonical identity stays IATA-based and
   itinerary/offer-graded as the scanner defines it; a kgmid is recorded in
   provenance, never used as `ItineraryIdentity`.
-- **Provenance is mandatory.** An observation produced by this adapter records:
-  `provider: "serpapi_google"`, the engine, `search_metadata.id` (the archive
-  handle), the currency, and the query parameters that produced it. Without
-  `search_metadata.id` the observation is not auditable and must not be stored.
+- **Provenance is mandatory, and it must record the request's capability mode.**
+  An observation produced by this adapter records:
+
+```
+provider        "serpapi_google"
+engine          google_flights | google_flights_deals | google_travel_explore | google_flights_autocomplete
+search_id       search_metadata.id — the 31-day archive handle; without it the observation is not auditable and MUST NOT be stored
+currency        the currency the price is denominated in
+request_kind    discover | search | verify | next_leg | booking_options
+cache_mode      cached | no_cache
+coverage_mode   standard | deep | hidden_included | unknown   (§7.1)
+retrieval_mode  synchronous | asynchronous
+query           the minimised normalised query (§14) — never the raw request URL
+```
+
+  `cache_mode` and `coverage_mode` are what make a stored observation
+  interpretable later. Without them, "was this fresh?" and "was this complete?"
+  are not recoverable from the number, and a re-read of the history would silently
+  assume the most flattering answers.
 
 ---
 
 ## 7. Freshness, caching and `observed_at`
 
-This is the sharpest contract risk in the whole adapter.
+This is the sharpest contract risk in the whole adapter, and the first version of
+this document got it wrong by conflating two different facts. They are separate:
+
+| Fact | Established by | **Not** established by it |
+|---|---|---|
+| **Provider fetch freshness** — a fresh upstream fetch was performed for this request, so the price is as current as the provider can make it | `no_cache=true` | when Google *generated* the underlying fare data |
+| **Observation time** — when the underlying data was actually observed | a provider-stamped time in the response | anything, when the provider exposes no such time |
 
 By default (`no_cache=false`) SerpApi may serve a response **up to one hour old**
-that is byte-identical to a fresh one. Our contracts forbid manufacturing
-provider observation time, and `observed_at_basis` may only be `provider` when the
-provider actually tells us when the observation was made — which is
-**[UNVERIFIED]** here.
+that is byte-identical to a fresh one. `no_cache=true` removes the provider's
+cache from the path — it does **not** convert a fetch time into an observation
+time.
 
 Therefore:
 
 1. **Any observation that may alert or verify is fetched with `no_cache=true`.**
    It costs a search; that is the correct price for a claim about "now".
-2. **Cached responses may feed only non-alerting series** — baseline collection,
-   destination exploration, trend history — and are recorded with
-   `observed_at = client_receipt` time, which is honest: we received it now, and
-   we cannot claim more.
-3. **If the probe (§17) finds a trustworthy timestamp field**
-   (`search_metadata` or equivalent), `observed_at_basis: provider` becomes
-   available and rule 1 may be relaxed for verification — but only with the
-   measured field recorded, never inferred from cache behaviour.
-4. Until rule 3 resolves, **the adapter must not set `freshness` to a
-   provider-dated value at all.**
+2. **Cached responses may feed only non-alerting series** — provider price
+   context, destination exploration, trend history. They are never alert-eligible
+   and they never verify anything.
+3. `observed_at` is the **earliest trustworthy** timestamp we hold, and its basis
+   is recorded explicitly. This adapter may emit exactly three values:
 
-The same discipline applies to coverage: `deep_search=false` (the default) is
-documented as *not* matching the browser's results, and a separate `show_hidden`
-parameter exists for "View more flights". A default search therefore cannot
-support `completeness: complete`.
+```
+observed_at_basis = provider         the response carries a provider-stamped
+                                     observation time (field unverified — §17)
+observed_at_basis = provider_fetch   a fresh no_cache fetch happened at a known
+                                     time, but the provider exposes no observation
+                                     time of its own
+observed_at_basis = client_receipt   no upstream time at all; we received it now
+```
+
+   `no_cache=true` alone justifies **`provider_fetch`** — never `provider`. The
+   canonical definition of `observed_at` and its basis lives in
+   [`trvl-study-design.md`](trvl-study-design.md) §2.1; this section adds the third
+   value to that enum, because a fetch-fresh price is a real and useful thing that
+   is still not an observation time.
+4. **The adapter must never manufacture a provider-stamped time.** With no
+   trustworthy timestamp, `provider_fetch` or `client_receipt` is the honest
+   answer, and `freshness` follows from the basis: a `provider_fetch` observation
+   may be `live`; a cached one may not.
+5. If the probe finds a trustworthy timestamp field, `provider` becomes available
+   and rule 1 may be relaxed for verification — with the measured field recorded,
+   never inferred from cache behaviour.
+
+### 7.1 Completeness is relative to a declared coverage contract
+
+`deep_search=false` (the default) is documented as *not* matching the browser's
+results, and `show_hidden` exists for "View more flights". The honest framing is
+therefore **not** "`deep_search=false` ⇒ `partial`" — that would bake a provider
+switch into a universal contract. Coverage is measured against what the request
+declared:
+
+```
+coverage_mode   standard         the provider's standard search (default)
+                deep             deep_search=true
+                hidden_included  show_hidden=true
+                unknown          we cannot tell what the provider served
+```
+
+- `partial` describes **unmet declared coverage** — not "the provider has a deeper
+  mode we did not ask for". A request declaring `standard` that returns the
+  provider's standard result set has satisfied *its* contract.
+- The moment the adapter claims exhaustiveness — "every flight Google Flights
+  could display" — `standard` cannot support it, and `deep` alone may not either.
+- `coverage_mode: unknown` cannot support `complete`.
+- `deep_search` and `show_hidden` are recorded in provenance (§6) so a stored
+  observation is re-readable with its coverage intact.
 
 ---
 
-## 8. `price_status` mapping
+## 8. `price_status` mapping and verification
 
 The scanner's single lifecycle is `indicative | observed | verified | stale | unavailable`.
 Mapping into it:
@@ -272,8 +353,8 @@ Mapping into it:
 | Provider situation | Status | Reasoning |
 |---|---|---|
 | `deals.price`, `explore.flight_price` | `indicative` | Provider says the price is not a specific bookable itinerary |
-| `google_flights` result, `deep_search=false` | `observed` (completeness `partial`) | Real search, incomplete coverage |
-| `google_flights` + `selected_flights_json` re-price | `verified` | The authoritative path returned this itinerary again |
+| `google_flights` result, `standard` coverage | `observed` | Real search; completeness per the declared coverage contract (§7.1) |
+| `google_flights` + `selected_flights_json` | `observed` → **verification candidate** | Pinning is not proof; only the comparison in §8.1 may raise it |
 | `booking_options[]` sellers | `observed` | **Referral prices from OTAs.** They are a different product (an agency's fare), not our itinerary's fare |
 | `Error` status, or the itinerary absent from results | `unavailable` | An event to record, never an alert |
 | Older than the freshness window | `stale` | Per the scanner's window rules |
@@ -290,27 +371,74 @@ shown to a human, but `extensions` is unstructured prose and **must never be
 parsed into a decision**. `cabin_product_quality` stays `unknown` unless the
 provider states it — no inference from airline or aircraft (scanner §7.2).
 
+### 8.1 Verification is a comparison, not an API mode
+
+Pinning an itinerary is not proof that it still costs what we saw. The adapter's
+verification operation therefore takes an expectation and returns a **result**:
+
+```
+VerificationRequest
+    expected_itinerary_identity   # segments: flight numbers + dates (scanner §5.2)
+    expected_price
+    expected_currency
+```
+
+and emits exactly one of:
+
+| Outcome | Condition | `price_status` |
+|---|---|---|
+| `verified` | same segments, same dates, same flight numbers, current price returned | `verified` |
+| `price_changed` | same itinerary, **different** price | `observed` — the new price is an observation, not a confirmation of the old one |
+| `substituted` | a different itinerary came back | `unavailable` for the expected itinerary; the substitute is a separate observation |
+| `gone` | the expected itinerary is absent | `unavailable` |
+
+Only the first row may set `verified`, and only the probe (§17) can establish that
+`selected_flights_json` produces it rather than a substitution. "Same itinerary,
+different price" is **not** verification — it is the single most valuable alert
+signal this system can produce, and collapsing it into `verified` would destroy
+exactly the event the scanner exists to catch.
+
 ---
 
-## 9. Baselines, and the one trap in `lowest_price`
+## 9. Provider price context, and the one trap in `lowest_price`
 
-`price_insights.typical_price_range` and `deals.average_price` are Google-computed
-baselines. They are exactly the shape §7.1 of the scanner needs, and they arrive
-per search rather than requiring us to accumulate a cohort. Two rules keep them
-honest:
+`price_insights` and `deals.average_price` are **provider-computed price
+context**, which this design names `ProviderPriceContext` — deliberately *not*
+"the baseline":
+
+```
+ProviderPriceContext
+    lowest_price            # minimum of the returned set — see rule 1
+    price_level             # provider's word; enum unverified
+    typical_price_range     # [low, high]
+    price_history           # [timestamp, price] pairs
+    average_price           # deals only
+    discount_percentage     # deals only
+```
+
+**It is a supplementary signal, not a replacement for the scanner's cohort
+baseline** (scanner §7.1). Google's "typical price" may describe a different
+population — different cohort, different market definition, possibly a different
+product — from our "historical observed bookable fare for this cohort". Wiring
+`SerpApi says cheap` → `scanner says cheap` without understanding that
+population would import an unstated model into the one part of the system most
+able to produce confident nonsense.
+
+Three rules keep it honest:
 
 1. **`lowest_price` is the minimum of the returned set**, not a market minimum.
-   It must never be used as a baseline, and must never be compared against a
-   baseline that was computed from it.
-2. **A baseline supplied by the provider is still a baseline.** It carries the
-   provider's own definition, window and cohort — which are undocumented
-   (**[UNVERIFIED]**: over what window `average_price` averages, and whether
-   `price_history` is route-level or query-level). Until the probe answers that,
-   these values are stored as *provider claims* with provenance and are **not**
-   rankable or alertable inputs. The scanner's existing rule — the current
-   observation must not participate in its own baseline — applies unchanged, and
-   a provider baseline must be identified as such so its own contribution is not
-   double-counted.
+   It must never be used as a baseline, and never compared against one computed
+   from it.
+2. **Provider context is stored as provider claims**, with provenance, and is
+   **not rankable or alertable** until the probe establishes its window and
+   cohort (**[UNVERIFIED]**: what `average_price` averages over, whether
+   `price_history` is route-level or query-level, and what `price_level`'s enum
+   contains).
+3. **The two must stay separable in the evaluation record**, so a deal can be
+   replayed against our baseline alone, against provider context alone, and
+   against both — that is how we will find out whether provider context is worth
+   anything. It must never be folded into the baseline silently, and a provider
+   context value must never contribute to the cohort it is being compared with.
 
 `carbon_emissions.typical_for_this_route` + `difference_percent` is the same
 pattern for emissions, useful for `travel_quality_score` context.
@@ -320,25 +448,33 @@ pattern for emissions, useful for `travel_quality_score` context.
 ## 10. Budget and quota
 
 The scanner's budget model (a hard monthly reservation, never consumed by the
-scanner itself) generalises to a **per-provider ledger**. SerpApi's rules change
-the arithmetic:
+scanner itself) generalises to a **per-provider ledger** — and the ledger must not
+use one word for three different things:
 
-| Event | Consumes quota? | Consequence for the ledger |
-|---|---|---|
-| Successful search with results | yes | normal unit |
-| **Successful search with empty results** | **yes** | an honest `no_results` still costs — the scanner must not probe empty routes freely |
-| Failed search (`Error`, 5xx, 429) | no | failures are cheap; retrying a *throughput* 429 is still wrong (§11) |
-| Cache hit (identical query, within 1h) | no | free, but see §7 on `observed_at` |
-| Search Archive retrieval | no | the 31-day archive is free to read |
+```
+ProviderRequest   an HTTP request we made
+ProviderSearch    a search the provider actually performed (cache hits are 0)
+BillableSearch    a search the provider counted against our monthly quota
+```
+
+| Event | ProviderRequest | ProviderSearch | BillableSearch | Note |
+|---|---|---|---|---|
+| Successful search with results | 1 | 1 | **1** | normal unit |
+| **Successful search with empty results** | 1 | 1 | **1** | an honest `no_results` still costs — the scanner must not probe empty routes freely |
+| Failed search (`Error`, 5xx, 429) | 1 | 0–1 | **0** | failures are cheap; retrying a *throughput* 429 is still wrong (§11) |
+| Cache hit (identical query, within 1h) | 1 | 0 | **0** | free, but see §7 — free is not fresh |
+| Search Archive retrieval | 1 | 0 | **0** | the 31-day archive is free to read |
 
 Concurrency ceiling: the plan's **guaranteed searches per hour** (50 on Free,
 200 on Starter) — not a per-second rate. The adapter must be shaped to *spread*
 searches across the hour rather than burst.
 
-Free tier reality check: 250 searches/month is **≈8/day**. A destination-pool
-scanner over flexible dates cannot run on it; the cheapest viable tier for
-scanner duty is Starter ($25 → 1,000/mo, ≈33/day). This is an owner cost decision,
-not an engineering one.
+Free tier reality check: 250 searches/month is **≈8/day**, so it cannot sustain
+broad or continuous scanning. It *is* sufficient for development, shadow
+collection (scanner §11 P2.1–P2.2) and narrowly scoped monitoring at a low
+cadence. **Starter ($25 → 1,000/mo, ≈33/day) is the first tier at which modest
+continuous scanning is practical** — which tier is worth paying for is an owner
+cost decision, not an engineering one, and depends on the planner's cadence.
 
 ---
 
@@ -348,8 +484,8 @@ SerpApi publishes what LetsFG leaves `UNKNOWN`, with one trap worth its own test
 
 | HTTP | Meaning | Client category | Action |
 |---|---|---|---|
-| 200 | success (may be empty) | — | empty list → `no_results`, `completeness: complete` |
-| 200 (body `search_metadata.status: Error`, HTTP 503) | result could not be produced | `transient` | retry with backoff |
+| 200 | success (may be empty) | — | empty list → `status: no_results`; completeness **per the declared coverage contract** (§7.1) — never `complete` automatically |
+| 503 (body carries `search_metadata.status: Error`) | the provider could not produce a result | `transient` | retry with backoff |
 | 400 | bad request, missing parameter | `validation` | fix the request; never retry as-is |
 | 401 | no valid API key | `auth_required` | stop; surface the missing key |
 | 403 | key's account deleted / no permission | `business` | stop; needs a human |
@@ -362,26 +498,45 @@ SerpApi publishes what LetsFG leaves `UNKNOWN`, with one trap worth its own test
 message (`"Your account has run out of searches."` vs a throughput message). The
 consequences are opposite:
 
-- *Throughput* 429 → `rate_limited` (transient). Back off, respect any
-  `Retry-After`, then resume.
+- *Throughput* 429 → `rate_limited` (transient). Back off, then resume.
 - *Quota* 429 → `budget_exhausted` (terminal for the run). Retrying can never
-  help; only a plan renewal or an early renewal can.
+  help; only a renewal can.
 
-The adapter MUST therefore classify 429 by reading the message, and that parsing
-MUST be pinned by a test with both recorded bodies. It is the one place where
-provider prose is load-bearing and is the sole exception to the "never parse
-prose into a decision" rule in §8 — an explicit, tested exception.
+Classification is **fail-safe, not clever**:
 
-SerpApi does **not** document a `Retry-After` header in its own contract (the
-429 blog post is generic guidance whose example is illustrative), so **[UNVERIFIED]**:
-honour `Retry-After` if present, otherwise exponential backoff with jitter, with a
-bounded attempt count.
+```
+429 + the known quota message        → budget_exhausted     (terminal)
+429 + a known throughput indication  → rate_limited         (transient, back off)
+429 + any unrecognised body          → rate_limit_unknown   (transient, bounded backoff,
+                                                            body retained for fixture capture)
+```
+
+An unrecognised body must **never** be guessed into either bucket: the unknown
+case is surfaced, so a provider wording change cannot silently hide quota
+exhaustion. Classification is pinned by fixture tests (§17) — this is the single
+sanctioned prose-parsing site in the adapter, and the explicit, tested exception
+to §3's no-manufacture rule.
+
+**`Retry-After` is an optional signal, never a contract.** SerpApi does not promise
+the header (the 429 blog post is generic guidance whose example is illustrative),
+so the adapter honours it **when present** and never depends on its presence:
+
+```
+if Retry-After present:  honour it (seconds or HTTP-date)
+else:                    bounded exponential backoff with jitter
+```
+
+Implementing this does not wait on the probe; the probe only establishes whether
+SerpApi actually sends the header.
 
 `no_results` versus `timeout` stays non-negotiable: an empty `Success` is a
-`no_results` with `completeness: complete`; a failed search is `timeout`/`failed`
-with `completeness: blocked`. And per the positive-evidence rule, an empty result
-is **not** evidence that a route is unserved — only evidence that this query,
-these filters, this time returned nothing.
+`no_results`, and a failed search is `timeout`/`failed` with
+`completeness: blocked`. An empty success does **not** automatically mean
+`complete` — completeness still answers to the declared coverage contract (§7.1),
+because "the provider processed my query" and "the universe was exhaustively
+searched" are different claims. And per the positive-evidence rule, an empty
+result is **not** evidence that a route is unserved — only evidence that this
+query, these filters, this time returned nothing.
 
 ---
 
@@ -410,6 +565,12 @@ unchecked. The existing Pydantic validators
 adapter's job is to *not defeat them*: no pre-filled totals, no
 `model_construct` shortcuts.
 
+> **Adapter invariant (permanent).** A provider aggregate duration is **never
+> authoritative** when segment timestamps are available. The model layer owns
+> segment duration, layover duration, route duration and timezone normalisation;
+> the provider supplies timestamps, not arithmetic. This is a contract test
+> (implementation plan P1.2), not a code comment.
+
 ### 12.2 Traps in the provider's own interface
 
 | Trap | Detail | Mitigation |
@@ -426,6 +587,24 @@ adapter's job is to *not defeat them*: no pre-filled totals, no
 
 ---
 
+### 12.3 Prefer types to assertions
+
+The mutual exclusions above should be enforced by a **request model per mode**
+rather than by runtime checks where the language allows it:
+
+```
+OneWayRequest | RoundTripRequest | MultiCityRequest
+SelectedFlightsRequest | BookingOptionsRequest | NextLegRequest
+```
+
+An invalid combination should be *unrepresentable* — `return_date` on a one-way
+request, both tokens at once — not merely caught by an assertion that a later edit
+can bypass. Where a discriminated union is impractical, one builder per mode with
+the assertions inside it is the acceptable fallback; a single function taking every
+parameter and hoping is not.
+
+---
+
 ## 13. The adapter contract
 
 An implementation satisfies this interface (naming follows the repo's existing
@@ -436,14 +615,23 @@ An implementation satisfies this interface (naming follows the repo's existing
 | `resolve_location(query)` | autocomplete | candidate locations with IATA codes **and** kgmid, marked provider-local |
 | `discover(origin, window, constraints)` | travel_explore and/or deals | `indicative` observations + destination candidates, with kgmid recorded in provenance |
 | `search(request)` | google_flights | a list of `FlightOffer`s, `price_status: observed`, with completeness |
-| `verify(itinerary)` | google_flights + `selected_flights_json` | at most one `FlightOffer` with `price_status: verified`, or an explicit absence |
+| `verify(request)` | google_flights + `selected_flights_json` | a **`VerificationResult`** (§8.1): `verified` \| `price_changed` \| `substituted` \| `gone` — never a bare offer claiming `verified` |
 | `next_leg(request)` | google_flights + `departure_token` | second-leg offers (round trip / multi-city) |
-| `booking_options(itinerary)` | google_flights + `booking_token` | referral sellers, `observed`, never bookable |
+| ~~`booking_options(itinerary)`~~ | google_flights + `booking_token` | **Not in V1** (see below) |
 
 Non-negotiable properties: every returned offer carries provenance
 (§6) and a status at or below its ceiling (§5); the adapter never books, never
 holds, never ranks, never alerts; absent configuration it raises the same
 "credential missing" error shape the other lanes use.
+
+**`booking_options` is out of V1** (§5, §8). It answers "which agency sells this
+itinerary, and for how much" — a **referral/merchant** semantic domain the scanner
+does not otherwise use. The OTA price is a different product, we cannot book
+through SerpApi at all, and it must never alert. If LetsFG ever wants referral
+navigation for a human, it arrives as a separate optional enrichment —
+`get_booking_options(itinerary) → ReferralOptions`, deliberately **outside**
+`FlightOffer` — so referral economics can never leak into fare evaluation. Until
+that is actually wanted, the endpoint stays unmodelled rather than speculative.
 
 Public exposure goes through the existing sanitiser
 (`to_public_offer`, which masks owner airline and strips sensitive conditions) —
@@ -453,21 +641,39 @@ the adapter must not build its own public shape.
 
 ## 14. Credentials and hygiene
 
-- The key is read from **`SERPAPI_API_KEY`** — environment only. It is **never**
-  written to `~/.letsfg/config.json` (contrast: the PFS/Developer credentials have
-  a store because the product owns them; a third-party scraping key does not
-  belong there). Working agreement rule 1.
+- The key is read from **`SERPAPI_KEY`** — environment only. That is the name
+  SerpApi's own current SDK documents (`os.getenv("SERPAPI_KEY")`, verified
+  2026-10-03), and adopting the vendor's name deliberately avoids inventing a
+  private convention that contradicts their examples. It is **never** written to
+  `~/.letsfg/config.json` (contrast: the PFS/Developer credentials have a store
+  because the product owns them; a third-party scraping key does not belong
+  there). Working agreement rule 1.
 - SerpApi takes the key as a **query parameter**, so it is present in the request
   URL. Therefore: **never log a full request URL**, never include the URL in an
   exception message, and never surface it in a user-facing error or a report.
   This is a concrete leak vector, not a hypothetical one — the existing PFS/Dev
   lanes pass credentials in headers, so this adapter is the first place in the
-  repo where that rule is load-bearing.
+  repo where that rule is load-bearing. The test must assert absence from the
+  exception text **and** from log lines, metric labels, trace attributes and
+  telemetry detail (implementation plan P1.3).
+- **Query minimisation, and two different "queries".** There are two artefacts and
+  they are not the same thing:
+
+```
+provider request   what we send — may carry transient detail the provider needs
+local provenance   what we keep — the minimum normalised query required for
+                   reproducibility: origin, destination, dates, cabin, pax counts,
+                   filters actually applied
+```
+
+  The observation store keeps the **second**, never the raw URL (which contains the
+  key and possibly more detail than the evaluation needs). Travel intent
+  (dates, destinations, party size) is sensitive in aggregate even when each field
+  is innocuous, so the store holds what replay requires and nothing more.
 - Retention: ZeroTrace is enterprise-only, so search parameters and results are
-  retained by SerpApi on all plans we would realistically use. Any decision to route
-  user-specific queries (dates, destinations tied to a person) through this lane
-  must acknowledge that. Fare observations remain domain data (D11), stored by us,
-  not telemetry.
+  retained by SerpApi on every plan we would realistically use. Routing
+  user-specific queries through this lane means accepting that; fare observations
+  themselves remain domain data (D11) stored by us, not telemetry.
 
 ---
 
@@ -495,46 +701,93 @@ the adapter must not build its own public shape.
 |---|---|---|
 | D1 | Add SerpApi as an **optional market provider adapter** inside this repo, behind the existing `FlightOffer` contracts, with no new public surface and no core dependency | **OPEN — owner** (it is provider acquisition, the one thing [`trvl-study-design.md`](trvl-study-design.md) D10 reserves to the owner) |
 | D2 | Never trust a provider-supplied duration total; recompute from segments and let the existing validators own the result | DECIDED (forced by §12.1) |
-| D3 | `no_cache=true` for every observation that may alert or verify; cached responses only for non-alerting series, with `observed_at_basis: client_receipt` | DECIDED |
-| D4 | Classify 429 by body message into `rate_limited` (transient) vs `budget_exhausted` (terminal); pin both bodies in a test | DECIDED |
-| D5 | Booking options are referral: `observed`, never `verified`, never alertable as bookable | DECIDED |
+| D3 | `no_cache=true` for every observation that may alert or verify; cached responses only for non-alerting series. Basis is `provider_fetch` (never `provider`) unless a provider timestamp is measured (§7) | DECIDED |
+| D4 | Classify 429 fail-safe: known quota message → `budget_exhausted` (terminal); known throughput indication → `rate_limited`; **anything unrecognised → `rate_limit_unknown`** (transient), never guessed. Fixture-pinned | DECIDED |
+| D5 | Booking options are referral: `observed`, never `verified`, never alertable as bookable — and **out of V1** (§13) | DECIDED |
 | D6 | `departure_token`/`booking_token` are request-scoped handles: never persisted, never identity | DECIDED |
 | D7 | kgmid is provider-local provenance, not canonical identity | DECIDED |
 | D8 | Key from the environment only; never log a request URL (key is a query parameter) | DECIDED |
 | D9 | A per-provider budget ledger; empty-but-successful results consume quota, failures and cache hits do not | DECIDED |
 | D10 | No adapter code until the probe (§17) has run — the caching/freshness rules cannot be finished without it | **DECIDED (gating)** |
-| D11 | Provider baselines (`typical_price_range`, `average_price`) are stored as provider claims; not rankable or alertable until their window/cohort is measured | DECIDED |
-| D12 | Plan tier is an owner cost decision; Free (≈8 searches/day) is insufficient for scanner duty | **OPEN — owner** |
+| D11 | Provider price context (`typical_price_range`, `average_price`) is stored as provider claims; not rankable or alertable until its window/cohort is measured (naming and separation rule in D15) | DECIDED |
+| D12 | Plan tier is an owner cost decision. Free (≈8 searches/day) cannot sustain broad or continuous scanning but is sufficient for development, shadow collection and narrowly scoped monitoring; **Starter is the minimum paid tier recommended for continuous operation under the initial budget model** | **OPEN — owner** |
 | D13 | `flight_result` (flight status) is out of scope for v1 | DECIDED |
 | D14 | The adapter must not import SerpApi's client package; standard library HTTP only | DECIDED |
+| D15 | Provider price fields are a **`ProviderPriceContext`**, not the scanner's baseline: stored as provider claims, non-rankable and non-alertable until their window/cohort is measured, and separable in the evaluation record (§9) | DECIDED |
+| D16 | Freshness is two facts, not one: **provider fetch freshness** vs **observation time**. `observed_at_basis` gains a third value, `provider_fetch`, and `observed_at` for a `no_cache` fetch is never reported as `provider` (§7) | DECIDED |
+| D17 | Completeness is measured against a **declared coverage contract** (`coverage_mode`), not against a provider switch; an empty success is not automatically `complete` (§7.1, §11) | DECIDED |
+| D18 | The key's environment name is the vendor's documented **`SERPAPI_KEY`**, not a private invention; the local provenance keeps a minimised query, never the raw URL (§14) | DECIDED |
 
 ---
 
 ## 17. Open probes (must run before code)
 
 One script, `-m live`-marked, refusing to run without an explicit env flag, on a
-key the owner provides. It measures — and records raw responses as evidence:
+key the owner provides. It measures — recording raw responses as evidence — and
+the two experiments that decide the contracts come first:
 
-1. `search_metadata`'s full key set on a fresh and on a **cache-hit** search:
-   is there a trustworthy observation timestamp? (Decides §7 rule 3.)
-2. Whether a **429 carries `Retry-After`**, and which message body each of the two
-   429 causes produces (feeds D4's test fixtures).
+**A. Cache behaviour on the same query.** `Q`, then `Q` again, then
+`Q + no_cache=true`, recording `search_metadata.id`, any timestamps, the price and
+the itinerary identity for each:
+
+```
+same query, cached   → same search_id?  same timestamps?  same price?
+same query, no_cache → new search_id?   new timestamp?    different price?
+```
+
+This is what establishes the freshness model (§7): whether a cache hit is
+detectable at all, and whether any timestamp actually moves.
+
+**B. Semantic equivalence of `selected_flights_json`.** Not "did it return 200",
+but: search A → choose itinerary I → `selected_flights_json(I)` → search B, then
+compare segment identity, dates, flight numbers, carrier, cabin and price. It must
+answer **same itinerary? same fare? same price?** — that is what decides whether
+`verified` (§8.1) is ever reachable, and it is the difference between a
+verification primitive and an itinerary-pinning curiosity.
+
+Then:
+
+1. `search_metadata`'s full key set on a fresh and on a **cache-hit** search: is
+   there a trustworthy observation timestamp? (Decides §7 rule 5.)
+2. Whether a **429 carries `Retry-After`**, and the exact body each of the two 429
+   causes produces — the quota wording and the throughput wording (feeds D4).
 3. `price_level`'s full enum across several routes (feeds §4.4).
 4. `price_history`'s real granularity and horizon, and `deals.average_price`'s
-   window — do they look route-level or query-level? (Feeds D11.)
+   window — route-level or query-level? (Feeds §9/D15.)
 5. Whether an empty-result search really consumes quota (`GET` the account
-   endpoint before and after) — the ledger's correctness depends on it.
-6. Whether `selected_flights_json` re-prices the *same* itinerary or silently
-   substitutes (the verification primitive's whole value).
-7. `booking_options[]`'s seller field set, to replace the [UNVERIFIED] in §4.4.
-8. Coverage: the same query with and without `deep_search`/`show_hidden` — how
-   many itineraries appear, and does `total_duration` disagree with its own
-   segments (re-checking §12.1 against live data)?
+   endpoint before and after) — the ledger's correctness depends on it (§10).
+6. Coverage: the same query with and without `deep_search`/`show_hidden` — how many
+   itineraries appear, and does `total_duration` disagree with its own segments
+   (re-checking §12.1 against live data)?
+7. *(Deferred with §13's V1 exclusion)* `booking_options[]`'s seller field set —
+   probe only if referral navigation is actually wanted.
 
-Cost: single-digit searches, plus quota consumed by the deliberate empty-result
-probe. Free tier (250/mo) is enough. Acceptance: a raw-response fixture set
-committed alongside the probe's findings, and every **[UNVERIFIED]** marker in
-this document resolved or re-stated with evidence.
+**Output: a provider capability profile, not just resolved markers.** The probe's
+primary artefact is machine-readable, because the implementation contract is
+derived from it:
+
+```json
+{
+  "provider": "serpapi_google",
+  "probed_at": "<date>",
+  "observed": {
+    "cache_detectable": false,
+    "provider_timestamp": null,
+    "retry_after_present": false,
+    "selected_flights_same_itinerary": null,
+    "selected_flights_same_price": null,
+    "price_level_values": [],
+    "empty_search_billable": null,
+    "coverage_delta_deep": null
+  }
+}
+```
+
+Every `null` is a contract still blocked, and a `true`/`false` must cite the
+fixture that showed it. Cost: single-digit searches, plus whatever the
+empty-result probe consumes. Free tier (250/mo) is enough. Acceptance: the fixture
+set, the capability profile, and every **[UNVERIFIED]** marker in this document
+either resolved with evidence or re-stated as still open.
 
 ---
 
@@ -542,13 +795,16 @@ this document resolved or re-stated with evidence.
 
 | Phase | Content | Gate |
 |---|---|---|
-| **P0** | Probe above → resolve the [UNVERIFIED] markers; then finish D3/D11 text | Owner supplies a key and accepts quota consumption |
-| **P1** | Contract tests that need no network: enum traps (§12.2), 429 classification (D4), credential redaction (D8) | Free — these are pure functions; still `OWNER` for new test files under rule 4 |
-| **P2** | The adapter module, mapping tables, budget ledger | **D1 owner decision required** |
-| **P3** | Scanner wiring (other repository) | Outside this repo |
+| **P0 — provider contract probe** | §17: freshness/cache, timestamp, 429 bodies, `selected_flights_json` semantics, price-context windows, quota accounting → the **capability profile** | Owner supplies a key and accepts quota consumption |
+| **P1 — contract freeze** | Turn the measured evidence into frozen contracts: the four axes, `price_status` + verification outcomes, `observed_at_basis`, completeness/coverage, provenance, `ProviderPriceContext`, ledger counters — plus the pure-function guards that encode them (enum traps §12.2, duration invariant §12.1, 429 classification D4, credential redaction §14) | Free of network; still `OWNER` for new test files under rule 4 |
+| **P2 — the adapter** | Module, request models, mapping, provenance, budget ledger, error mapping | **D1 owner decision required** |
+| **P3 — scanner wiring** | planner → scheduler → observation store → verification → alerting | Outside this repo |
 
-Everything from P2 onward is new scope. Under the working agreement it needs an
-explicit owner go-ahead, and the implementation plan records it that way.
+P1 is deliberately a **freeze**, not a backlog: it is the step between evidence and
+implementation, so the adapter is written against measured behaviour rather than
+against a plausible reading of the documentation. Everything from P2 onward is new
+scope and needs the owner's explicit go-ahead; the implementation plan records it
+that way.
 
 ---
 
@@ -557,11 +813,13 @@ explicit owner go-ahead, and the implementation plan records it that way.
 | This document | Depends on / feeds |
 |---|---|
 | §2, §9 | [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §7.1 (baseline), §6 (planner, flexible dates) |
-| §7 | scanner §5.4 (freshness), and the envelope's `freshness`/`observed_at_basis` invariant |
-| §8 | scanner §5.4 (`price_status`), §7.2 (`cabin_product_quality` neutrality) |
+| §7, D16 | [`trvl-study-design.md`](trvl-study-design.md) §2.1 — the canonical `observed_at`/`observed_at_basis` definition, extended here with `provider_fetch`; scanner §5.4 (freshness) |
+| §7.1, §11, D17 | the envelope's completeness axis (trvl study §2.1, §2.4) — `partial` means unmet *declared* coverage |
+| §8, §8.1 | scanner §5.4 (`price_status`), §5.2 (itinerary identity), §6.5 (verification); `price_changed` is an alert signal, not a verification |
+| §9, D15 | scanner §7.1 — provider price context is a separate series, never a baseline substitute |
 | §11 | [`trvl-study-design.md`](trvl-study-design.md) §6 Q8 (LetsFG's own limiter is still `UNKNOWN`); the `no_results` vs `timeout` rule |
 | §12.1 | `sdk/python/letsfg/models/flights.py` invariants; `sdk/python/tests/test_duration_timezone.py` |
-| §12.2, §14 | [`flight-finder-study-implementation.md`](flight-finder-study-implementation.md) defect-class items (guards that pin provider quirks) |
+| §12.2, §12.3, §14 | [`flight-finder-study-implementation.md`](flight-finder-study-implementation.md) defect-class items (guards that pin provider quirks) |
 | §13 | [`architecture-guide.md`](architecture-guide.md) — the provider boundary belongs there, not in a new design surface (trvl study D13) |
 | §16 D1 | trvl study §7 ownership model (provider acquisition is owner-reserved) |
 
@@ -573,4 +831,29 @@ explicit owner go-ahead, and the implementation plan records it that way.
   external summary of it was found to be right in structure and wrong on
   flexible dates, silent on `selected_flights_json`, and silent on cost and
   quota. Findings folded into §4, §5, §10, §12.2. No live request was made.
+- *Review #1, 2026-10-03 — architecture approved, semantics corrected*, applied in
+  full. The recurring fault was **semantic overclaim**: the first version stated
+  provider capabilities as though they were established contracts. Changes:
+  §2 no longer claims the gaps are *closed* (price context is supplementary,
+  flexible dates are *discovery*, and the capability grid states what is and is
+  not authoritative); §3 gained the no-manufacture-from-absence rule; §5 demotes
+  `verify` to a **verification candidate**; §6 records `cache_mode`/`coverage_mode`/
+  `request_kind`/`retrieval_mode`; §7 was rewritten around **two facts** (provider
+  fetch freshness ≠ observation time) with a third `observed_at_basis` value and a
+  coverage contract rather than "`deep_search=false` ⇒ partial"; §8.1 defines
+  verification as a **comparison** with four outcomes, so `price_changed` is not
+  silently called `verified`; §9 renames provider baselines to
+  **`ProviderPriceContext`** and makes them separable, non-rankable claims; §10
+  splits the ledger into request/search/billable; §11 fixes the `200`/`503`
+  contradiction, makes 429 classification **fail-safe** (`rate_limit_unknown`),
+  makes `Retry-After` an optional signal, and stops an empty success being
+  auto-`complete`; §12.1 elevates the duration rule to a permanent invariant and
+  §12.3 prefers typed request models to assertions; §13 takes `booking_options` out
+  of V1; §14 adopts the vendor's **`SERPAPI_KEY`** name and adds query
+  minimisation; §16 adds D15–D18 and revises D3/D4/D5/D12; §17 puts cache and
+  semantic-equivalence experiments first and emits a machine-readable capability
+  profile; §18 makes P1 a contract **freeze**. The mandated five are all in:
+  fetch-vs-observation freshness, verification-as-candidate, completeness relative
+  to declared coverage, fail-safe 429 (with the HTTP contradiction fixed), and
+  provider price context kept out of the baseline.
 - *Pending* — the probe in §17, and the owner decisions D1 and D12.

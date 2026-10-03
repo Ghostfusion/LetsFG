@@ -96,12 +96,24 @@ observed_at    # when the data was observed — provider-stamped if available,
 received_at    # when the client finished reading the response
 ```
 
-The MCP envelope carries `observed_at` plus `observed_at_basis` (`provider` |
-`client_receipt`) rather than all three: the wire contract needs one number and a
-way to know how much to trust it. Manufacturing a provider-stamped time from a
-client clock is the failure this rule exists to prevent — it would make a stale
-fare look freshly observed, and the scanner's whole purpose is to act on prices at
-the right moment.
+The MCP envelope carries `observed_at` plus `observed_at_basis` rather than all
+three: the wire contract needs one number and a way to know how much to trust it.
+**Three** bases, because an upstream *fetch* is a real thing that is still not an
+*observation*:
+
+```
+observed_at_basis = provider         the upstream stamped when the data was observed
+observed_at_basis = provider_fetch   an upstream fetch happened at a known time, but the
+                                     upstream exposes no observation time of its own
+observed_at_basis = client_receipt   no upstream time at all; we received it now
+```
+
+Manufacturing a provider-stamped time from a client clock is the failure this rule
+exists to prevent — it would make a stale fare look freshly observed, and the
+scanner's whole purpose is to act on prices at the right moment. Symmetrically,
+`provider_fetch` must never be *reported* as `provider`: a "no cache" fetch is not
+a provider observation timestamp. (Third value added 2026-10-03 from provider
+evidence — see [`serpapi-provider-design.md`](serpapi-provider-design.md) §7.)
 
 **Why `freshness` (review).** A retained observation is dangerous without it: `current_price = 6200` means nothing unless you also know *when* it was seen and whether it was verified. A scanner that keeps observations must never present a stale price as current, so the two fields are part of the contract from the start rather than a later retrofit. `unknown` is the honest default for anything the client did not fetch itself.
 

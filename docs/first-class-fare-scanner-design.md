@@ -534,6 +534,17 @@ Mixing them would make the baseline *"historical advertised price"* rather than
 *"historical observed bookable fare"* — a subtle and systematic source of false
 deals, since discover prices are cheaper by construction and not bookable.
 
+**Provider price context is not a baseline.** An external provider may supply its
+own price context — through a SerpApi-style adapter, Google Flights returns
+`typical_price_range`, `price_level` and a price history per search
+([`serpapi-provider-design.md`](serpapi-provider-design.md) §9). That is a
+**`ProviderPriceContext`**: it carries the *provider's* cohort and window, which
+are not ours and are unmeasured. It is stored as a provider claim with provenance,
+kept **separable** in the evaluation record — so a replay can be scored against our
+baseline alone, provider context alone, and both — and it is **not rankable or
+alertable** until its semantics are established. It never enters the cohort it is
+being compared against, and it is never folded into the baseline silently.
+
 **Comparability.** `taxes_included` and `price_comparability` are recorded per
 observation, and the baseline excludes anything not comparable:
 
