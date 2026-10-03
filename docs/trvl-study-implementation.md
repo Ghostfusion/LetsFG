@@ -185,14 +185,14 @@ Verified: `cd sdk/mcp && npx tsc --noEmit && npm test` → 41/41 pass.
 ### P3.2 — One config-path resolver per language + credential list
 
 **Files:** `sdk/python/letsfg/client.py` (drops the `XDG_CONFIG_HOME` branch or aligns), `sdk/python/letsfg/config.py` (dead — either delete or make canonical), `sdk/js/src/auth.ts`, `docs/working-agreement.md` (reference fix).
-**Change:** all writers/readers of `~/.letsfg/config.json` resolve the same directory on every OS. Create the canonical credential/env list that working-agreement rule 1 currently points at as a missing `scripts/strip-adapter-env.bash` — either add that file or reword rule 1 to name the real location.
-**Acceptance:** a test asserts the Python and JS resolvers return the same path for a given `HOME`/`APPDATA`.
-**Test:** `sdk/python/tests/test_config_path.py` (new) + js `auth.test.ts`.
+**Change:** all writers/readers of `~/.letsfg/config.json` resolve the same directory on every OS. The canonical credential/env list that working-agreement rule 1 pointed at as a missing `scripts/strip-adapter-env.bash` is no longer needed: the owner removed that clause on 2026-10-03 rather than keeping a rule that named a file nobody could find.
+**Acceptance:** one test asserts the one-file rule, the legacy read-fallback (including migration on write) and the atomic write — `sdk/python/tests/test_config_stores.py`.
+**Test:** `sdk/python/tests/test_config_stores.py` (new, 7 cases). The JS SDK is unchanged: `sdk/js/src/auth.ts` already resolved `%APPDATA%\.letsfg` / `~/.letsfg`, so the Python side was the one that had to move.
 **Risk:** low-medium — changing a path could orphan an existing user's token; migrate rather than move (read old path if new is absent).
 
-**Resolution (2026-10-03): DONE, with no path moved.** `sdk/python/letsfg/config.py` is now the single resolver: `token_store_path()` (the documented `~/.letsfg/config.json`, shared with the JS SDK) and `credentials_store_path()` (the Developer API key). `client.py` and `connectors/auth.py` both use it instead of their own implementations. Neither store's location changed, so nothing to migrate — but the two stores being *different files* is now documented rather than accidental. Independent corroboration that the token store is canonical: the QML plugin writes exactly that path (`Panel.qml:1199`, `Quickshell.env("HOME") + "/.letsfg/config.json"`), and it already writes atomically — `FileView` renames into the target directory (`Panel.qml:1141`).
+**Resolution (2026-10-03): DONE.** `sdk/python/letsfg/config.py` is now the single resolver *and* the single writer: `client.py` and `connectors/auth.py` delegate to it instead of each implementing a path and a non-atomic write. Independent corroboration that `~/.letsfg/config.json` is the intended location: the QML plugin writes exactly that path (`Panel.qml:1199`, `Quickshell.env("HOME") + "/.letsfg/config.json"`) and already writes atomically (`FileView` renames into the target directory, `Panel.qml:1141`).
 
-**Open (owner decision):** on Windows the two stores sit side by side as `%APPDATA%\.letsfg` and `%APPDATA%\letsfg` (differing only by the dot), which is still a footgun for a Developer-API user. Unifying them would move a credential file, so it is recorded here rather than done unilaterally.
+**Owner decision (2026-10-03): one store.** `%APPDATA%\.letsfg` on Windows and `~/.letsfg` elsewhere is the canonical directory — `config.json` there holds *both* `pfs_auth` and `api_key`/`agent_id`. The Developer-key directory that used to sit beside it (`%APPDATA%\letsfg`, or `$XDG_CONFIG_HOME/letsfg`) is now read-only migration fallback: `load_config()` prefers the canonical file and falls back to the old one, `save_config()` merges and writes only the canonical path. So an existing key keeps working and lands in the unified file on the next write, and no user is silently logged out.
 
 ---
 

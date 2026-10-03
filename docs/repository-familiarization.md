@@ -134,9 +134,9 @@ Persistence: `~/.letsfg/config.json` (tokens + optional API key), plugin per-she
 | `LETSFG_BASE_URL` | Override host | `https://letsfg.co` | no | local.py, auth.py, js, mcp, tools |
 | `LETSFG_WAIT_FOR_SPLIT` | `0` disables late-merge wait | wait enabled | no | local.py, js, mcp |
 | `LETSFG_USER_AGENT` | UA override (MCP) | built-in | no | mcp |
-| `~/.letsfg/config.json` `pfs_auth.{token,expires_at,refresh_token,client_id}` | Token store (`letsfg auth`) | — | PFS | auth.py, js auth, Panel.qml FileView |
-| `api_key`, `agent_id` (credentials store: `%APPDATA%\letsfg`·`$XDG_CONFIG_HOME/letsfg`, POSIX) | Dev creds | — | Dev | client.py |
-| `APPDATA`/`XDG_CONFIG_HOME` | Config dir base | home | no | `letsfg/config.py` — one resolver for both stores (§18 risk 5) |
+| `~/.letsfg/config.json` (`%APPDATA%\.letsfg\config.json` on Windows) — `pfs_auth.{token,expires_at,refresh_token,client_id}` | Token store (`letsfg auth`) | — | PFS | auth.py, js auth, Panel.qml FileView |
+| same file — `api_key`, `agent_id` | Dev creds | — | Dev | client.py, auth.py (one store, both kinds) |
+| `APPDATA`/`XDG_CONFIG_HOME` | Platform base; `XDG_CONFIG_HOME` only locates the legacy fallback | home | no | `letsfg/config.py` — one resolver (§18 risk 5) |
 | `manifest.json version` | Plugin version | 1.1.0 | — | Omarchy |
 
 Secrets live only in the config file (chmod 0600) or env; never bundled (plugin reads the CLI's file). `context7.json` embeds a Context7 *public* key (not a secret).
@@ -277,7 +277,7 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 2. **~~MCP `book_flight` (API-key) targets a retired route~~ Fixed 2026-10-03:** it posted to `/developers/api/v1/bookings/book` (410 Gone since 2026-09-08) and polled booking status on the PFS route. Both now use the Developer API paths the JS SDK always used, and `sdk/mcp/src/envelope.test.ts` records the routes the server actually calls.
 3. **Python test quarantine** — 19 stale modules are parked in `sdk/python/conftest.py`; the suite is green, but the quarantined files remain and must eventually be deleted or rewritten (`test/docs-claims.test.mjs` now fails if an entry points at a file that no longer exists).
 4. **QML monoliths** (`Panel.qml` 4.8k, `Model.js` 2.7k) with a shared closure-based session and strict invariants — easy to violate the single-`newRequest`/click-only-search rules.
-5. **~~Two config-path implementations~~ Fixed 2026-10-03:** `client.py` and `connectors/auth.py` each resolved their own directory and wrote non-atomically. One resolver now lives in `letsfg/config.py`; both stores are named, documented, and written atomically at 0600 from creation (the token store carries a rotating refresh token, so a torn write used to force a new card connect).
+5. **~~Two config-path implementations~~ Fixed 2026-10-03:** `client.py` and `connectors/auth.py` each resolved their own directory — on Windows, sibling dirs differing only by a leading dot — and wrote non-atomically. One store now exists (`%APPDATA%\.letsfg` / `~/.letsfg`, holding both `pfs_auth` and `api_key`), resolved by `letsfg/config.py`, written atomically at 0600 from creation. The old Developer-key paths are read as migration fallbacks so no existing key is orphaned.
 6. **Generated `assets/ranking.js` drift** if `sdk/js/src` changes without re-running `build-ranking.py`.
 7. **Docs-as-prompt surface** (AGENTS/SKILL/context7) directly instructs agents; wrong commands (e.g. `letsfg register`, non-existent `recover`, wrong ranking sample) cause real account/behaviour problems.
 8. **Stale OpenAPI** — the committed spec is a subset: generated clients will miss top-up/billing/discover/sandbox paths. The double-prefixed server URL was fixed 2026-10-03 and is now guarded by `test/docs-claims.test.mjs`.

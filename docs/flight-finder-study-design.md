@@ -135,9 +135,10 @@ a line number, so it churns whenever that line moves.
 saturated with credential-*shaped* examples (`eyJ…` bearer tokens, `letsfg_…`
 keys) across `AGENTS.md`, `README.md`, `docs/**`. Adopting a scanner therefore
 requires either placeholder hygiene (make examples obviously non-secret) or a
-line-pinned allowlist that will churn. This also closes a live gap in our own
-working agreement rule 1, which names `scripts/strip-adapter-env.bash` as the
-canonical secret list — **that path does not exist in this repo**.
+line-pinned allowlist that will churn. It also closes a gap in our own working
+agreement rule 1: the clause it carried about a canonical adapter-credential list
+(`scripts/strip-adapter-env.bash`, a file that never existed here) was removed by
+owner decision on 2026-10-03, so rule 1 now states only what can be observed.
 
 ---
 
@@ -560,7 +561,7 @@ All verified in the probe tree; each is a lesson, not a jab:
 | D1 | Adopt a dead-code ledger with exact identities + reasons | `[ADOPT]` | Records the dead weight our rules forbid us to delete silently. Verify Python support in `scripts/audit.py` before depending on the action; prefer a vendored check. |
 | D2 | Harden CI: per-job timeouts, top-level `permissions`, `persist-credentials: false`, concurrency | `[ADOPT]` | Pure defect fix; we have zero timeouts today. |
 | D3 | Enforce D2 with a workflow-hygiene test | `[ADOPT]` | Their drift is the evidence that unenforced rules decay; extends `test/docs-claims.test.mjs`. |
-| D4 | Adopt secret scanning | `[ADOPT]` | Enforces working-agreement rule 1; needs placeholder hygiene in `AGENTS.md`/`docs/**` first. Also resolves the dangling `scripts/strip-adapter-env.bash` reference. |
+| D4 | Adopt secret scanning | `[ADOPT]` | Enforces working-agreement rule 1; needs placeholder hygiene in `AGENTS.md`/`docs/**` first. (The dangling `scripts/strip-adapter-env.bash` clause in rule 1 was removed by owner decision, 2026-10-03 — nothing left to resolve there.) |
 | D5 | Extend Dependabot to npm + pip with grouping and cooldown | `[ADOPT]` | Our `sdk/js`, `sdk/mcp` and Python deps are currently unmanaged. |
 | D6 | Adopt a PR template with a mandatory verification section and consent block | `[ADOPT]` | Codifies rules 3/4 at the merge surface. Their issue-link requirement does **not** conflict with our commit-subject rule (PR body ≠ commit subject) — do not "fix" that later. |
 | D7 | Adopt an issue template requiring lane + SDK + error/envelope code | `[ADOPT]` | Our diagnosis correlate is the lane; `fix_hint_code` is a first-class field. |

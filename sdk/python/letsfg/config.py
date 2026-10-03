@@ -1,20 +1,23 @@
-"""Where the LetsFG SDK keeps its two local stores, and how they are written.
+"""The LetsFG local config store: one file, one location, resolved in one place.
 
-There are two credentials, kept in two files on purpose, and both locations are
-resolved here — in one place — so the CLI, the client and the auth flow cannot
-drift apart:
+`config.json` holds both credential kinds:
 
-- **token store** — ``~/.letsfg/config.json`` (``%APPDATA%\\.letsfg\\config.json``
-  on Windows): the card-backed PFS token written by ``letsfg auth`` under
-  ``pfs_auth``. This is the path the documentation names, and the JS SDK uses
-  the same one.
-- **credentials store** — ``~/.config/letsfg/config.json``
-  (``%APPDATA%\\letsfg\\config.json`` on Windows; ``XDG_CONFIG_HOME`` is
-  honoured): the Developer API key (``api_key``, ``agent_id``).
+- `pfs_auth` — the card-backed PFS token written by ``letsfg auth``
+- `api_key` / ``agent_id`` — the Developer API key
 
-Writes are atomic and owner-only. The config carries a rotating refresh token, so
-a torn write costs the user a new card connect — which is what the previous
-write-then-chmod implementation risked on every token refresh.
+The location follows the same rule on every platform, so the CLI, the SDKs and
+the QML plugin cannot drift apart:
+
+- Windows: ``%APPDATA%\\.letsfg\\config.json``
+- otherwise: ``~/.letsfg/config.json``
+
+Earlier versions kept the Developer API key in a *different* directory
+(``%APPDATA%\\letsfg`` on Windows, ``$XDG_CONFIG_HOME/letsfg`` on POSIX), which
+is why ``load_config`` also reads those paths and ``save_config`` folds them into
+the canonical file. Reads fall back; only the canonical path is ever written.
+
+Writes are atomic and owner-only. The file carries a rotating refresh token, so a
+torn write costs the user a new card connect.
 """
 from __future__ import annotations
 
@@ -23,11 +26,8 @@ import os
 import tempfile
 from pathlib import Path
 
-# Directory names under the platform config base. Kept as literals so the two
-# stores stay greppable: the token store's leading dot is part of the path the
-# docs and the JS SDK use.
-TOKEN_DIR = ".letsfg"
-CREDENTIALS_DIR = "letsfg"
+CONFIG_DIR = ".letsfg"
+CONFIG_FILE = "config.json"
 
 
 def _appdata() -> Path:
@@ -35,19 +35,52 @@ def _appdata() -> Path:
     return Path(os.environ.get("APPDATA", Path.home()))
 
 
-def token_store_path() -> Path:
-    """The PFS token store written by ``letsfg auth`` (documented path)."""
-    base = _appdata() if os.name == "nt" else Path.home()
-    return base / TOKEN_DIR / "config.json"
+def config_dir() -> Path:
+    """The directory LetsFG keeps its config in, on this platform."""
+    return (_appdata() if os.name == "nt" else Path.home()) / CONFIG_DIR
 
 
-def credentials_store_path() -> Path:
-    """The Developer API key store, alongside other application config."""
+def config_path() -> Path:
+    """The config file: both the PFS token and the Developer API key live here."""
+    return config_dir() / CONFIG_FILE
+
+
+def legacy_config_paths() -> tuple[Path, ...]:
+    """Where the Developer API key used to live, before the stores were unified.
+
+    Read-only fallbacks, so moving to one directory does not orphan a key a user
+    already saved. Nothing is ever written here again.
+    """
     if os.name == "nt":
-        base = _appdata()
-    else:
-        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return base / CREDENTIALS_DIR / "config.json"
+        return (_appdata() / "letsfg" / CONFIG_FILE,)
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return (xdg / "letsfg" / CONFIG_FILE,)
+
+
+def load_config() -> dict:
+    """Read the store, falling back to a legacy location. Never raises.
+
+    A corrupt or unreadable file reads as an empty store: the callers turn that
+    into "not authenticated yet", which is a message the user can act on.
+    """
+    for path in (config_path(), *legacy_config_paths()):
+        try:
+            if path.exists():
+                return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+    return {}
+
+
+def save_config(data: dict) -> None:
+    """Merge `data` into the store and write it atomically, owner-only.
+
+    The merge is what lets the token writer and the API-key writer share a file
+    without either dropping the other's keys.
+    """
+    current = load_config()
+    current.update(data)
+    atomic_write_json(config_path(), current)
 
 
 def atomic_write_json(path: Path, data: dict) -> None:

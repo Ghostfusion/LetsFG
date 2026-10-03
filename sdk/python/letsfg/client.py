@@ -41,13 +41,12 @@ import json
 import logging
 import os
 import time
-from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 
-from letsfg.config import atomic_write_json, credentials_store_path
+from letsfg.config import config_path, load_config, save_config
 from letsfg.models import (
     AgentProfile,
     BookingResult,
@@ -62,33 +61,19 @@ DEFAULT_BASE_URL = "https://letsfg.co/developers"
 _log = logging.getLogger(__name__)
 
 
-# ── Config file persistence (Developer API key; see letsfg.config) ────────
-
-def _config_path() -> Path:
-    """The Developer API key store. Resolution lives in letsfg.config."""
-    return credentials_store_path()
-
+# ── Config file persistence (shared store; see letsfg.config) ─────────────
 
 def _load_config() -> dict:
-    """Load saved config (api_key, agent_id, etc.)."""
-    p = _config_path()
-    if p.exists():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+    """Load saved config (pfs_auth, api_key, agent_id, …)."""
+    return load_config()
 
 
 def _save_config(data: dict) -> None:
-    """Persist config to disk (owner read/write only, atomically)."""
-    p = _config_path()
+    """Merge into the shared store and write it owner-only, atomically."""
     try:
-        existing = _load_config()
-        existing.update(data)
-        atomic_write_json(p, existing)
+        save_config(data)
     except Exception as e:
-        _log.debug("Could not save config to %s: %s", p, e)
+        _log.debug("Could not save config to %s: %s", config_path(), e)
 
 
 def _saved_api_key() -> str:

@@ -5,7 +5,6 @@ Agreements that apply to all contributions to this repository.
 1. **Never commit or document sensitive information.**
    No API keys, secrets, private keys, wallet material, tokens, passwords, or personal data in
    code, tests, fixtures, docs, commit messages, or logs. Adapter credentials stay in environment
-   variables; `scripts/strip-adapter-env.bash` is the canonical list of adapter credential
    variables. Read credentials from the environment only, and never add an environment variable
    to a test in a way that makes the test depend on it.
 

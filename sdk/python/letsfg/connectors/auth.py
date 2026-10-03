@@ -48,7 +48,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-from letsfg.config import atomic_write_json, token_store_path
+from letsfg.config import config_path, load_config, save_config
 
 _BASE_URL = os.environ.get("LETSFG_BASE_URL", "https://letsfg.co")
 _DEV_ROOT = f"{_BASE_URL}/developers/api"
@@ -77,30 +77,27 @@ class BearerTokenError(Exception):
 
 
 # ── config ────────────────────────────────────────────────────────────────
+# The token is one half of the shared config file (see letsfg.config); the
+# Developer API key is the other, and the store merges rather than overwrites so
+# neither writer drops the other's keys.
 
 def _config_path() -> Path:
-    """The PFS token store. Location and write strategy live in letsfg.config."""
-    return token_store_path()
+    """Where `letsfg auth` writes. Location and write strategy live in letsfg.config."""
+    return config_path()
 
 
 def _load_config() -> dict:
-    p = _config_path()
-    if p.exists():
-        try:
-            return json.loads(p.read_text())
-        except Exception:
-            return {}
-    return {}
+    return load_config()
 
 
 def _save_config(cfg: dict) -> None:
-    """Persist the token store owner-only and atomically.
+    """Merge into the shared store and write it owner-only, atomically.
 
     Not "write then chmod": this file holds the rotating refresh token, and a
     write interrupted halfway leaves something that parses as "not
     authenticated", forcing the user through a new card connect.
     """
-    atomic_write_json(_config_path(), cfg)
+    save_config(cfg)
 
 
 def save_token(
