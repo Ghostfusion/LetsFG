@@ -110,7 +110,7 @@ ClientTelemetryEvent   # { kind, at, duration_ms?, status?, lane?, detail? }
 
 …and initially send it nowhere (a no-op sink). A JSONL file, an OpenTelemetry exporter or a debug logger can implement the same interface later, when there is a question to answer. Writing `~/.letsfg/health.jsonl` now would add a file, a rotation rule and a redaction rule for data nobody reads.
 
-**Important boundary (review).** Client operational telemetry — auth-refresh failure, HTTP failure, latency, late-merge wait — is **not** the same thing as travel observation data (fare observations, price changes, availability, price history). The second is **domain data**, owned by the scanner layer, and mixing the two would put fare history behind a "health log" nobody thinks of as a system of record. See [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §Contracts.
+**Important boundary (review).** Client operational telemetry — auth-refresh failure, HTTP failure, latency, late-merge wait — is **not** the same thing as travel observation data (fare observations, price changes, availability, price history). The second is **domain data**, owned by the scanner layer, and mixing the two would put fare history behind a "health log" nobody thinks of as a system of record. See [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §5 (Contracts).
 
 ### 2.6 Atomic state writes with restrictive permissions — `[ADOPT]`
 
