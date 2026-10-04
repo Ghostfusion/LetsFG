@@ -453,6 +453,19 @@ describe('hotels', () => {
   it('every final status is named once', () => {
     assert.deepEqual([...HOTEL_BOOKING_FINAL_STATUSES], ['succeeded', 'failed', 'attention']);
   });
+
+  it('a missing expectedCost is MISSING_PARAMETER, not a code-less refusal', async () => {
+    await assert.rejects(
+      () => new LetsFG({ apiKey: 'letsfg_xxxx_valid_looking_key' })
+        .bookHotel({ ...PARAMS, expectedCost: undefined } as never),
+      (err: unknown) => {
+        const e = err as LetsFGError;
+        assert.equal(e.errorCode, ErrorCode.MISSING_PARAMETER);
+        assert.equal(e.errorCategory, ErrorCategory.VALIDATION);
+        return true;
+      },
+    );
+  });
 });
 
 // ── PFS poll timeout ──────────────────────────────────────────────────────
@@ -489,6 +502,35 @@ describe('PFS search poll timeout', () => {
       globalThis.fetch = originalFetch;
       Date.now = originalNow;
     }
+  });
+});
+
+// ── Missing required arguments ────────────────────────────────────────────
+
+describe('missing required arguments', () => {
+  it('a missing searchId on the PFS lane is MISSING_PARAMETER', async () => {
+    await assert.rejects(
+      () => new LetsFG({ bearerToken: 'tok', baseUrl: 'http://lfg.test' })
+        .book('off_1', [] as never, 'a@example.com'),
+      (err: unknown) => {
+        const e = err as LetsFGError;
+        assert.equal(e.errorCode, ErrorCode.MISSING_PARAMETER);
+        assert.equal(e.errorCategory, ErrorCategory.VALIDATION);
+        return true;
+      },
+    );
+  });
+
+  it('a missing searchId on the Developer API lane is MISSING_PARAMETER', async () => {
+    await assert.rejects(
+      () => new LetsFG({ apiKey: 'letsfg_xxxx_valid_looking_key' })
+        .book('off_1', [] as never, 'a@example.com'),
+      (err: unknown) => {
+        const e = err as LetsFGError;
+        assert.equal(e.errorCode, ErrorCode.MISSING_PARAMETER);
+        return true;
+      },
+    );
   });
 });
 

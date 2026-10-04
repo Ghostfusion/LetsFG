@@ -563,6 +563,8 @@ export class LetsFG {
         throw new LetsFGError(
           'searchId is required to book via PFS — pass the search_id from search()\'s result.',
           400,
+          {},
+          ErrorCode.MISSING_PARAMETER,
         );
       }
       const passenger = { ...passengers[0] } as Record<string, unknown>;
@@ -582,6 +584,8 @@ export class LetsFG {
           'result. An offer can only be booked inside the search that produced it. (Before ' +
           '2026-09-08 this argument was ignored on this path.)',
         400,
+        {},
+        ErrorCode.MISSING_PARAMETER,
       );
     }
     const pax = passengers.map((p) => ({ ...p })) as Array<Record<string, unknown>>;
@@ -834,6 +838,8 @@ export class LetsFG {
             : '') +
           'See https://letsfg.co/developers/api/docs',
         400,
+        {},
+        ErrorCode.MISSING_PARAMETER,
       );
     }
     const body: Record<string, unknown> = {

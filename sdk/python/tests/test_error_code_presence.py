@@ -65,6 +65,32 @@ class BearerTokenErrorFieldsTest(unittest.TestCase):
         self.assertFalse(err.is_retryable)
 
 
+class MissingParameterErrorTest(unittest.TestCase):
+    """`MISSING_PARAMETER` is documented as "Required field missing" and was
+    assigned to nothing: Python raised a bare `ValueError` for it, which is also
+    outside the taxonomy its own documentation promises."""
+
+    def _book_without_search_id(self) -> C.ValidationError:
+        with patch.object(A, "get_bearer_token", side_effect=BearerTokenError("no token")):
+            client = C.LetsFG(api_key="letsfg_your_api_key")
+            with self.assertRaises(C.ValidationError) as cm:
+                client.book(offer_id="off_1", passengers=[{"given_name": "Ada"}],
+                            contact_email="a@example.com")
+        return cm.exception
+
+    def test_a_missing_search_id_carries_missing_parameter(self):
+        err = self._book_without_search_id()
+        self.assertEqual(err.error_code, C.ErrorCode.MISSING_PARAMETER)
+        self.assertEqual(err.error_category, C.ErrorCategory.VALIDATION)
+        self.assertFalse(err.is_retryable)
+
+    def test_it_is_catchable_as_a_letsfg_error(self):
+        # The point of the change: a caller that catches the documented base
+        # class now sees this refusal at all.
+        self.assertTrue(issubclass(C.ValidationError, C.LetsFGError))
+        self.assertIsInstance(self._book_without_search_id(), C.LetsFGError)
+
+
 class RegistrationErrorCodeTest(unittest.TestCase):
     def test_a_registration_failure_carries_an_inferred_code(self):
         def raise_it(req, timeout=None):

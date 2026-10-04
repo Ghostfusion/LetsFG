@@ -590,7 +590,14 @@ class LetsFG:
         try:
             get_bearer_token()
             if not search_id:
-                raise ValueError("search_id is required to book via PFS (pass the search_id from search_local()'s result).")
+                # This was a bare ValueError, so the one error the taxonomy
+                # names for it — MISSING_PARAMETER, "Required field missing" —
+                # was never assigned to the condition it describes, and a
+                # caller catching LetsFGError never saw it.
+                raise ValidationError(
+                    "search_id is required to book via PFS (pass the search_id from search_local()'s result).",
+                    error_code=ErrorCode.MISSING_PARAMETER,
+                )
             passenger = passengers[0]
             if isinstance(passenger, Passenger):
                 passenger = passenger.to_dict()
@@ -607,11 +614,12 @@ class LetsFG:
 
         self._require_api_key()
         if not search_id:
-            raise ValueError(
+            raise ValidationError(
                 "search_id is required to book on the Developer API — pass the search_id from "
                 "search()'s result. An offer can only be booked inside the search that produced "
                 "it. (Before 2026-09-08 this argument was ignored on this path; the retired "
-                "/bookings/book route took an offer_id alone.)"
+                "/bookings/book route took an offer_id alone.)",
+                error_code=ErrorCode.MISSING_PARAMETER,
             )
         pax_list = []
         for p in passengers:
