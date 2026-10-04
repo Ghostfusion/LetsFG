@@ -366,7 +366,7 @@ publishing is manual: a build identity that is always `dev` adds noise.
 | P9 credential resolver | D8 | P1.1 |
 | P10 positive-evidence flags | D9 | P1.2 (same principle; already implemented for the 4 wrapped tools) |
 | P11 evidence grade for fares | — | Deferred; recorded in the design doc, not scheduled |
-| P12 test taxonomy | D15 | P2.4 / quarantine burn-down (already tracked in the `trvl` plan) |
+| P12 test taxonomy | D15 | P2.4 / quarantine burn-down (tracked in the `trvl` plan; **cleared 2026-10-03** — the 18 modules were deleted, not rewritten) |
 | P13 verify the process | D3/D13 | P0.1 (test), P3.1 (tag binding) |
 | P14 publication integrity | D13/D14 | P0.2 (blocked part), P3.1, P3.2, P3.3 |
 | P16 CHANGELOG | D12 | P0.2 |

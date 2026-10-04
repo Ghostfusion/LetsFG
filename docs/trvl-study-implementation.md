@@ -59,10 +59,15 @@ from becoming permanent:
    `PARKED_TEST_MODULES = 18`, so adding a module requires updating that expectation
    (and the recorded reason in `conftest.py`) in the same change.
 
-**Remaining follow-up (unchanged):** prefer **repair** (rewrite against the current
-API) over parking; when a module is deleted or rewritten, remove its
-`collect_ignore_glob` entry, lower `PARKED_TEST_MODULES`, and eventually delete the
-block.
+**Follow-up — cleared 2026-10-03.** All 18 parked modules were deleted, and
+`sdk/python/conftest.py` with them. Each tested an implementation removed in
+`f91be5b` — the local connectors, the source-region and airline-route tables,
+`connectors/currency.py`, and the `starlinkflights` source — or a helper deleted
+with them (`_resolve_location_local`'s synchronous behaviour, `_build_telemetry_payload`,
+`_fire_telemetry`), so repair against the current API was not available for any
+of them. The intent survives in git history, and `test/docs-claims.test.mjs` still
+pins the parked set, now at `PARKED_TEST_MODULES = 0`: re-parking a module means
+re-creating the block and raising that number in the same change.
 
 ### P0.2 — Add `CHANGELOG.md`
 

@@ -25,7 +25,7 @@ Root/
 │   │   ├── letsfg/        __init__, __main__, cli, client, local, config,
 │   │   │   ├── connectors/  auth.py (OH2.1+PKCE), airport_tz.py  (3 files only)
 │   │   │   └── models/      dataclass DTOs + flights.py (pydantic)
-│   │   └── tests/         32 unittest modules (17 currently uncollectable)
+│   │   └── tests/         18 test modules
 │   ├── js/                npm `letsfg` 2026.5.75 — index/auth/cli/ranking/offer-details/trip-purpose
 │   └── mcp/               npm `letsfg-mcp` 2026.5.78 — stdio MCP server
 ├── BarWidget.qml          Omarchy bar widget entry (manifest.json entryPoints)
@@ -163,7 +163,7 @@ Secrets live only in the config file (chmod 0600) or env; never bundled (plugin 
 
 | Suite | Location | Framework | Status in this checkout |
 |---|---|---|---|
-| Python SDK | `sdk/python/tests/` | unittest + pytest | **green after quarantine**: `pytest -m "not live"` → 103 passed, 2 skipped, 0 errors; 19 stale modules are listed in `sdk/python/conftest.py` `collect_ignore_glob` (17 failed at import from missing `letsfg.connectors.*`, 2 failed at runtime) |
+| Python SDK | `sdk/python/tests/` | unittest + pytest | `pytest -m "not live"` → 159 passed, 7 deselected, 0 errors. **Cleared 2026-10-03:** the 18 modules parked against removed `letsfg.connectors.*` implementations were deleted, with the `conftest.py` quarantine block |
 | Python masking (advisory CI) | `test_public_offer_masking.py` | pytest | passes (deps pydantic only) |
 | JS SDK | `sdk/js/src/**/*.test.ts` | node:test via tsx | `tsc --noEmit` clean; 39/39 pass |
 | MCP | `sdk/mcp/src/index.test.ts`, `envelope.test.ts` | node:test via tsx | protocol + contract guards, envelope unit/E2E, per-lane routes, tool-list coverage; `tsc --noEmit` clean; 45/45 pass |
@@ -179,7 +179,7 @@ Strong coverage on: plugin logic/security, offer masking, per-lane field names, 
 ```bash
 # Python SDK/CLI
 cd sdk/python && pip install -e ".[dev]"
-python -m pytest -m "not live"          # green: 99 passed (stale modules quarantined in conftest.py)
+python -m pytest -m "not live"          # green: 159 passed (no quarantine remains)
 python -m pytest tests/test_public_offer_masking.py
 letsfg auth / letsfg search LON BCN 2026-06-01
 
@@ -211,7 +211,7 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 
 **Outdated / contradicts code (verified):**
 1. `docs/TESTING.md` + `CONTRIBUTING.md` referenced `connectors/tests/smoke_harness.py`, `connectors/test_routes.py`, `website/tests/`, `growth-ops/`, `sdk/python/tests/fixtures/` — **none exist**. **Fixed 2026-10-03:** TESTING.md was rewritten around what this repository actually runs (Tier-1 only, with tiers 2–3 labelled private-repo), and CONTRIBUTING.md's commands now match.
-2. 17 test modules imported `letsfg.connectors.{wizzair,vueling,emirates,skyscanner,tripcom,checkout_engine,…}`, absent since `f91be5b`, so `python-deterministic` CI failed. **Resolved 2026-10-03:** those 17 plus 2 runtime-stale modules (`test_india_user_surfaces.py`, `test_telemetry_enrichment.py`) are quarantined in `sdk/python/conftest.py`; the suite is green.
+2. 17 test modules imported `letsfg.connectors.{wizzair,vueling,emirates,skyscanner,tripcom,checkout_engine,…}`, absent since `f91be5b`, so `python-deterministic` CI failed. **Resolved 2026-10-03:** those 17 plus 2 runtime-stale modules (`test_india_user_surfaces.py`, `test_telemetry_enrichment.py`) were quarantined in `sdk/python/conftest.py`; the suite is green. **Cleared 2026-10-03:** all 18 were deleted — each tested an implementation removed in `f91be5b` (`connectors.*`, `source_regions`, `airline_routes`, `currency`, `starlinkflights`) or a helper deleted with them, so none could be rewritten against the current API. `conftest.py` and its block are gone.
 3. `docker-compose.yml`/`Dockerfile(.python)`/`Dockerfile` installed Playwright Chromium and documented `--mode fast`, `LETSFG_MAX_BROWSERS`, `LETSFG_PROXY`, `LETSFG_NO_TELEMETRY` — all for removed local connectors. **Fixed 2026-10-03:** browser and its system libraries removed from all three images, dead knobs dropped, headers corrected; the Python image is now a thin client (no Chromium download).
 4. `openapi.yaml`: server carried `…/developers/api/v1` **and** paths began `/api/v1/…` → every generated URL was double-prefixed. **Fixed 2026-10-03**: `servers[0].url` is now `https://letsfg.co/developers`, and `test/docs-claims.test.mjs` pins the composition. The spec is still a stale subset missing top-up/billing/rotate-key/discover/async/multi-search/sandbox paths documented elsewhere.
 5. `openapi.yaml` says API key prefix `trav_`; docs/examples use `letsfg_`.
@@ -275,7 +275,7 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 
 1. **Per-lane field naming** — a single mistaken key silently ignores filters (documented past bugs in `local.py` and both SDKs). Any search-option change must be applied per lane.
 2. **~~MCP `book_flight` (API-key) targets a retired route~~ Fixed 2026-10-03:** it posted to `/developers/api/v1/bookings/book` (410 Gone since 2026-09-08) and polled booking status on the PFS route. Both now use the Developer API paths the JS SDK always used, and `sdk/mcp/src/envelope.test.ts` records the routes the server actually calls.
-3. **Python test quarantine** — 19 stale modules are parked in `sdk/python/conftest.py`; the suite is green, but the quarantined files remain and must eventually be deleted or rewritten (`test/docs-claims.test.mjs` now fails if an entry points at a file that no longer exists).
+3. **~~Python test quarantine~~ Cleared 2026-10-03:** the 18 stale modules were deleted rather than rewritten — their subjects were removed in `f91be5b` — and `sdk/python/conftest.py` with them. `test/docs-claims.test.mjs` still pins the parked set, now at 0: re-parking means re-creating the block and raising the number in the same change.
 4. **QML monoliths** (`Panel.qml` 4.8k, `Model.js` 2.7k) with a shared closure-based session and strict invariants — easy to violate the single-`newRequest`/click-only-search rules.
 5. **~~Two config-path implementations~~ Fixed 2026-10-03:** `client.py` and `connectors/auth.py` each resolved their own directory — on Windows, sibling dirs differing only by a leading dot — and wrote non-atomically. One store now exists (`%APPDATA%\.letsfg` / `~/.letsfg`, holding both `pfs_auth` and `api_key`), resolved by `letsfg/config.py`, written atomically at 0600 from creation. The old Developer-key paths are read as migration fallbacks so no existing key is orphaned.
 6. **Generated `assets/ranking.js` drift** if `sdk/js/src` changes without re-running `build-ranking.py`.
@@ -310,7 +310,7 @@ Lint/format/typecheck: only `npx tsc --noEmit` (CI-invoked; no `typecheck` scrip
 | MCP tools | `sdk/mcp/src/index.ts` (+ tests) | tool schemas, lane dispatch, cautious responses; fix the retired `/bookings/book` route | `npm test` in `sdk/mcp` |
 | Ranking | `sdk/js/src/ranking.ts` → `tools/build-ranking.py` | 9 dims/12 profiles, hero gates, deterministic sort | js `index.test.ts`, rerun build, plugin preview |
 | Docs/agent guidance | README/AGENTS/CLAUDE/SKILL/context7/docs | keep lanes and retired endpoints consistent; mirror across files | grep for `register`/`unlock`/`setup_payment` contradictions |
-| Python tests | `sdk/python/tests/` | deterministic offline, `live` marker for network | `pytest -m "not live"` (**currently red** — fix or quarantine the connector-import modules) |
+| Python tests | `sdk/python/tests/` | deterministic offline, `live` marker for network | `pytest -m "not live"` → 159 passed (**the quarantine was cleared 2026-10-03**; the connector-import modules were deleted) |
 
 **Non-negotiables:** don't reintroduce local connectors/Playwright; don't add JS/MCP runtime deps; don't relax the plugin's pinned-origin/byte-cap/click-only invariants; don't charge before a PNR; keep `assets/ranking.js` generated, never hand-edited; keep the config-file shape compatible with the CLI.
 

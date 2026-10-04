@@ -321,21 +321,26 @@ test('one credential variable is resolved, and every surface names the same one'
 });
 
 // ── Parked Python tests ───────────────────────────────────────────────────
-// sdk/python/conftest.py parks modules that cannot run. Two guards, both about
-// keeping the quarantine a work queue rather than a resting place:
+// sdk/python/conftest.py parked modules that could not run. Two guards, both
+// about keeping the quarantine a work queue rather than a resting place:
 //
 //   1. a dead entry (a parked module that no longer exists) fails;
 //   2. the set is pinned to a recorded size, so *adding* a module requires a
 //      deliberate edit here — quarantine cannot grow silently.
 //
-// Quarantine is not the fix: a module should be repaired against the current API
-// or deleted. See docs/trvl-study-design.md §2.10.
+// **Cleared 2026-10-03.** All 18 parked modules tested implementations removed
+// in `f91be5b` (the local connectors, the source-region and airline-route
+// tables, the currency table and the Starlink source), or helpers deleted with
+// them, so none could be repaired against the current API. The modules and the
+// `conftest.py` block are gone, and the pin is 0: parking anything now means
+// re-creating the block and raising this number in the same change.
 
-const PARKED_TEST_MODULES = 18;
+const PARKED_TEST_MODULES = 0;
 
 test('the parked Python test set is pinned and every entry exists', () => {
-  const entries = [...read('sdk/python/conftest.py').matchAll(/"(tests\/[^"]+)"/g)].map((m) => m[1]);
-  assert.ok(entries.length > 0, 'expected collect_ignore_glob entries in sdk/python/conftest.py');
+  const conftestPath = join(ROOT, 'sdk/python/conftest.py');
+  const conftest = existsSync(conftestPath) ? read('sdk/python/conftest.py') : '';
+  const entries = [...conftest.matchAll(/"(tests\/[^"]+)"/g)].map((m) => m[1]);
   assert.equal(
     entries.length,
     PARKED_TEST_MODULES,
