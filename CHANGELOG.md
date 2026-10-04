@@ -57,6 +57,13 @@ a heading carries:
 
 ### Fixed
 
+- MCP: a refusal the server makes itself — a missing credential, a missing
+  argument — returned a bare `{error}` with no envelope, so a caller could not
+  tell a validation refusal from a transport failure. Every local refusal now
+  carries `status`/`completeness`/`fix_hint_code`, and deliberately carries **no**
+  `observed_at_basis`/`freshness`, because nothing was received. Found by calling
+  the server from a real MCP client: the test suite defaulted a bearer token, so
+  the uncredentialed paths were unreachable from it. (44aea31)
 - Repository: the OpenAPI `servers[0].url` double-prefixed `/api/v1` on every
   generated URL, two advertised MCP tools were undocumented in the package
   README, and the MCP runtime reported version `1.3.1` while the package was
