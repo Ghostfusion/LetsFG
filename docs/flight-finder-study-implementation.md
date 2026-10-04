@@ -139,12 +139,24 @@ open PR. Owner acknowledgement, then it is a one-file deletion.
 
 Design P9/D8.
 
-**The invariant.** Every public SDK/MCP operation resolves its **lane, base path,
-authentication mechanism and credential source through one canonical resolver**.
-No operation-level code may infer lane configuration: it asks the resolver for an
-operation and receives the URL, headers and credential already chosen. Precedence
-stays `explicit argument → environment → saved config`; what changes is that it is
-written once per SDK instead of re-derived per call site.
+**The invariant.** Every **public client surface** — Python SDK, JS SDK, MCP —
+resolves its **lane, base URL, API namespace, authentication scheme and
+credential** through one canonical resolver. No operation-level code may derive
+any of those values itself: it asks the resolver and receives them already
+chosen. Precedence stays `explicit argument → environment → saved config`; what
+changes is that it is written once per surface instead of re-derived per call
+site.
+
+**Scope (Q2, answered 2026-10-04).** The resolver owns **only** the reads that
+determine authentication (class A) or lane selection (class B). Class C — runtime
+and provider configuration such as a base-URL override, wait-for-split, or the
+user agent — is **not** part of D8; class D (tests, docs, fixtures) is excluded
+from the runtime resolver entirely. A lane resolver that swallows class C becomes
+a settings hub, which is what this boundary prevents.
+
+**Not a request router.** `resolve_lane()` returns lane identity;
+`build_request(operation, lane)` decides method and path. Endpoint knowledge stays
+with the operation, or the resolver couples to every route in the API.
 
 **Evidence (measured 2026-10-03, counts not line numbers — the lines move).**
 `LETSFG_*` is read at **28 sites** with no shared resolver: **5** in the MCP
@@ -160,22 +172,26 @@ for this item, not against it: the drift was caught by a test written for *that
 route*, not by anything structural, and the next route will not have one.
 
 **Change.**
-1. One lane resolver per SDK (Python, JS, MCP) implementing the **shared contract**,
-   returning a `ResolvedLane` — `lane`, `base_path`, `auth_scheme`, `credential` —
-   plus the precedence above. The contract is shared; the runtime code is not.
-2. Route every operation — search, poll, booking, hotels — through it; no
-   operation reads `LETSFG_*` or hard-codes a lane's path.
+1. One lane resolver per **public client surface** (Python SDK, JS SDK, MCP)
+   implementing the **shared contract**, returning a `ResolvedLane` — `lane`,
+   `base_url`, `api_namespace`, `auth_scheme`, `credential` — plus the precedence
+   above. The contract is shared; the runtime code is not.
+2. Route every authentication/lane read (classes A + B) through it; no operation
+   reads those from the environment or hard-codes a lane's path.
 3. Enforce **credential/lane compatibility**: a bearer credential on the PFS lane,
    an API key on the Developer lane, and neither offered to the other. This is the
    cross-lane drift that actually happened, so it is asserted, not assumed.
 4. Keep the existing lane-route tests (they are the acceptance evidence) and add
-   the per-SDK **lane-matrix** assertion: for each lane, the literal paths the
-   SDK issues for search and booking.
+   the per-surface **lane-matrix** assertion: for each lane, the literal paths the
+   surface issues for search and booking.
 
-**Acceptance.** No SDK reads `LETSFG_*` outside its resolver — asserted by a
-per-package grep-style test, as `sdk/mcp/src/index.test.ts` already does for
-dead routes. The lane matrix is complete for all three SDKs (six rows), and each
-row's literal paths are asserted in its own package.
+**Acceptance.** The read-site table exists — one row per `LETSFG_*` read
+(surface · runtime? · class A/B/C/D · resolver?) — and a per-package test asserts
+that **no class A or class B read happens outside the resolver**. Class C reads are
+permitted, and are *listed* rather than removed; an assertion that every
+`LETSFG_*` read disappears would force the settings hub this item exists to avoid.
+The lane matrix is complete for all three surfaces (six rows), and each row's
+literal paths are asserted in its own package.
 
 **Verify.** `cd sdk/mcp && npx tsc --noEmit && npm test`; `cd sdk/js && npx tsc
 --noEmit && npm test`; `cd sdk/python && pytest -m "not live"`.
@@ -223,15 +239,28 @@ the rate-limit failure contract is established by experiment."
 what happens when they are crossed; the probe makes failure direction an explicit,
 per-endpoint decision (fail-closed on `community/register`, fail-open on `parse`).
 
-**Change.** Run a controlled probe against the live API and record: the status
-returned on crossing the limit; whether `Retry-After` is supplied; **whether a
-rejected request still consumes quota**; the limit's scope (key/account/IP/endpoint);
-whether concurrency counts separately; behaviour after repeated violations;
-consistency across `/flights/search`, `/flights/discover`, `/flights/multi-search`;
-and whether polling `/api/results/{id}` draws on the search quota or a separate
-request quota. Then document the measured contract in `docs/api-*.md` +
-`AGENTS.md`, and state the intended direction per operation. Until it is measured,
-`rate_limit_failure_behavior = UNKNOWN` and no scheduler logic may assume one.
+**Change — the six fields D10 requires, per limiter.** Run a controlled probe
+against the live API and record, for each limiter:
+
+1. **scope/key** — per bearer token? per API key? per IP? per user? per route?
+   global?
+2. **operation** — which calls it governs;
+3. **counting event** — arrival, success, failure, provider call, or only
+   expensive operations. (A rejected request may or may not spend quota, and this
+   is the field most often assumed rather than measured);
+4. **limit/window** — the number, and whether the window is fixed or sliding;
+5. **failure direction** — what happens when the counter store is unavailable:
+   allow or deny. **Do not assume one policy across all limiters**;
+6. **retry/response** — status, error code, `Retry-After`, and any reset
+   information.
+
+Plus the surrounding behaviour: whether concurrency counts separately, behaviour
+after repeated violations, consistency across `/flights/search`,
+`/flights/discover` and `/flights/multi-search`, and whether polling
+`/api/results/{id}` draws on the search quota or a separate request quota. Then
+document the measured contract in `docs/api-*.md` + `AGENTS.md`. Until it is
+measured, `rate_limit_failure_behavior = UNKNOWN` and no scheduler logic may
+assume one.
 
 **Acceptance.** Each rate-limited operation in the docs names its measured failure
 behaviour, and the scanner's scheduler encodes only measured behaviour. Full
@@ -249,20 +278,26 @@ that changes what a price *means*.
 
 ```
 search outcome     results | partial | no_results | timeout | rate_limited | failed
-price evidence     indicative | observed | quoted | verified | stale | unavailable
-booking state      search_result | quote | hold | ticket | confirmed_itinerary
+price evidence     indicative | observed | verified | stale | unavailable
+booking state      search_result | quoted | held | ticketed | confirmed
 ```
 
-with the rules: a retrieval that did not complete cannot promote a price; a price
-that was merely advertised cannot be presented as verified; `freshness=live`
-requires a live fetch; `price_status=verified` requires a verification outcome;
-and **a booking state may never be read back as evidence about a price** — a hold
-is not a better quote, and a ticket is not a better observation. An earlier draft
-folded `held`/`ticketed` into the price ladder, which is exactly the conflation
-this item exists to prevent.
+**`price evidence` is our existing `price_status`, not a superset** (Q5, answered
+2026-10-04). No `price_evidence` / `evidence_grade` / `quote_status` field is
+introduced: the peer semantics map onto the field we already have, and the
+decidable question is whether `price_status` + the verification outcome fully
+express them. If they do, **this item adds no schema at all** — only the
+no-promotion policy below.
 
-`price_evidence` mirrors `price_status`; `quoted` is the one addition (a provider
-answering for a specific itinerary rather than advertising a route).
+with the rules: **a degraded or partial retrieval cannot *promote* an offer** (a
+partial search may legitimately carry a genuine `observed` price — what it may not
+do is imply complete coverage or raise a grade merely because something came
+back); a price that was merely advertised cannot be presented as verified;
+`freshness=live` requires a live fetch; `price_status=verified` requires a
+verification outcome; and **a booking state may never be read back as evidence
+about a price** — a hold is not a better quote, and a ticket is not a better
+observation. An earlier draft folded `held`/`ticketed` (and then `quoted`) into
+the price ladder, which is exactly the conflation this item exists to prevent.
 
 **The constraint that decides the design.** This **extends the offer we already
 return; it does not model a second price**. No new field may duplicate
@@ -455,21 +490,29 @@ tests. Nothing below is claimed as done unless its line says so.
 - [ ] PFS and Developer lanes are tested on all three surfaces, against the
       six-row lane matrix
 
-**2. Evidence** (D11, P1.4) — *specified, not implemented; gated on Q5*
-- [ ] the three axes are machine-readable per offer, and booking state is not
-      folded into price evidence
-- [ ] the price-evidence grade is machine-readable per offer
-- [ ] a retrieval failure cannot promote a price
+**2. Evidence** (D11, P1.4) — *mapping decided (Q5); implementation not started*
+- [ ] the three axes are distinct, and booking state is not folded into price
+      evidence
+- [ ] `price_status` + the verification outcome are shown to express the
+      peer-derived semantics — **or the exact remaining gap is named**
+- [ ] no new field is introduced: `price_evidence` / `evidence_grade` /
+      `quote_status` are refused
+- [ ] a degraded or partial retrieval cannot *promote* an offer (while a partial
+      search may still carry a genuine `observed` price)
 - [ ] a stale observation cannot masquerade as fresh price evidence
-- [ ] the grade extends the existing offer; no field duplicates `price_status`
 - [ ] the grade is populated from what the lane actually observed, not defaulted
 
-**3. Search outcomes** (D9, P1.2) — *implemented for MCP*
+**3. Search outcomes** (D9, P1.2) — *implemented for MCP; vocabulary decided (Q6)*
 - [x] `no_results`, `partial`, `timeout`, `failed`, `rate_limited` are distinct,
       and `no_results` requires a present-and-empty list with legal coverage
 - [ ] the same discrimination on the Python and JS SDK surfaces
-- [ ] "unsupported route" and "malformed response" are represented in the one
-      vocabulary (not a second enum) — design P10
+- [ ] the Q6 additions are represented in the **one** vocabulary, not a second
+      enum: `unsupported` (the agent can route elsewhere) and `auth_failed`
+      (operational, not market information)
+- [ ] provider detail rides *alongside* the status (`provider`, `provider_code`,
+      `retry_after_seconds`) and is never the machine contract
+- [ ] `empty_reason` still explains only an empty result set — it has not grown
+      into a second error taxonomy
 
 **4. Agent contract** (D11/P17) — *not scheduled*
 - [ ] every agent-facing operation documents the dimensions **that apply to it**:
@@ -491,6 +534,19 @@ tests. Nothing below is claimed as done unless its line says so.
       built from**, and the SHA identifies that exact revision
 - [ ] that SHA is the one a release tag binds to (D13), so the chain
       tag → version → commit → required checks → artifact is closed end to end
+
+**7. Live canary** (Q4, answered 2026-10-04) — *decided; the test does not exist yet*
+- [x] decision: keep the live lane and make it an **opt-in canary**, not a
+      deletion and not a dormancy
+- [ ] a **LetsFG-contract live test** is written — today the live lane holds only
+      the SerpApi provider probe (`test_serpapi_live.py`, 7 tests), so a workflow
+      running `pytest -m live` would be a SerpApi quota probe wearing a canary's
+      name
+- [ ] the workflow is manually dispatchable, optionally scheduled, skips cleanly
+      with no `LETSFG_BEARER_TOKEN`, never runs on fork PRs, and never logs the
+      secret
+- [ ] bounded scope: one representative search, no booking, no mutation, explicit
+      timeout
 
 **Not part of this bar:** CI hardening, Dependabot, PR/issue templates, the
 changelog, the dead-code ledger, file-size caps, the Makefile or the screenshot
@@ -554,24 +610,27 @@ integration surface comes first, because it is the reason for the study.
 
 **Tier 1 — contract foundations (the integration surface)**
 
-Ordered by dependency (design §4's gate map), not by importance:
+Ordered by dependency (design §4: Q2, Q5 and Q6 are answered; Q3 is not):
 
-1. **P1.1 (rest)** — one lane-resolution contract, one implementation per SDK,
-   returning a `ResolvedLane`, with credential/lane compatibility asserted.
-   Structural, so it needs an owner nod (rule 4).
-2. **P1.2 (rest) + design Q6** — settle the error taxonomy, then carry the
-   search-outcome discrimination to the Python and JS surfaces. P11 depends on
-   outcomes being settled first.
-3. **P1.4 + design Q5** — the three-axis offer contract. Step 1 is a *written
-   answer* to Q5 (which existing offer field carries the grade, and which it must
-   not duplicate) before any code, because this is the item most likely to create
-   a second price model.
+1. **P1.1** — one lane-resolution contract, one implementation per **public client
+   surface**, returning a `ResolvedLane`, scoped to classes A + B, with
+   credential/lane compatibility asserted. Structural, so it needs an owner nod
+   (rule 4).
+2. **P1.2 (rest)** — carry the search-outcome discrimination to the Python and JS
+   surfaces, using the Q6 vocabulary rather than a new one.
+3. **P1.4** — the three-axis contract: confirm whether `price_status` + the
+   verification outcome already express the semantics (Q5), and if so add only the
+   no-promotion policy. The written answer still comes before code.
 4. **D11 / acceptance bar §4** — operational semantics, documenting the contract
    that by now exists.
-5. **P1.3** — establish the limiter's scope and failure direction by measurement
-   (trvl §6 Q8), then document it. Nothing downstream may assume it beforehand.
-6. **P2.1** — PR/issue templates with the surface × lane × operation enums. Valuable,
-   but an observability contract: it follows the platform semantics, not leads them.
+5. **P1.3** — establish the limiter's six fields by measurement (trvl §6 Q8), then
+   document them. Nothing downstream may assume them beforehand.
+6. **P2.1** — PR/issue templates with the surface × lane × operation enums.
+   Valuable, but an observability contract: it follows the platform semantics,
+   not leads them.
+
+Alongside Tier 2, the **live canary** (Q4): write the LetsFG-contract live test
+first, then the opt-in workflow.
 
 **Tier 2 — distribution and API correctness**
 

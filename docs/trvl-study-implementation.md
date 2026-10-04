@@ -166,12 +166,51 @@ Verified: `node --test test/docs-claims.test.mjs` → 6/6 pass (and 2 failures b
 
 **Deferred:** the `CHANGELOG.md` half of this item depends on P0.2, which is not done; the test asserts version consistency across the manifests that exist today.
 
-### P1.4 — Nightly live probe (`live-probes.yml`) — **defer until a live test exists**
+### P1.4 — Live canary (`live-canary.yml`) — **decided 2026-10-04: keep the lane, make it a canary**
 
-**Files:** new `.github/workflows/live-probes.yml`; one opt-in live test in `sdk/python/tests/` marked `live` (the marker already exists in `pyproject.toml`).
-**Change:** daily cron runs `pytest -m live`; on schedule failure, open/comment a single labelled issue ("Live API contract drift"). trvl precedent: `live-probes.yml`.
-**Acceptance:** the job skips cleanly with no `LETSFG_BEARER_TOKEN` secret; documents the env it needs.
-**Risk:** low, but requires a token secret in CI — flag for owner before adding.
+**Files:** new `.github/workflows/live-canary.yml`; a **new** LetsFG-contract live
+test in `sdk/python/tests/` (the `live` marker already exists in `pyproject.toml`).
+
+**Decision** (Q4 of the flight-finder study, answered 2026-10-04). The live tests
+are **kept** — neither deleted nor left dormant. Deleting them throws away an
+intended contract; leaving them dormant pretends the contract is covered. They
+become an explicitly opt-in **canary**:
+
+- `pytest -m "not live"` stays the ordinary hermetic suite (D15);
+- `pytest -m live` is the canary lane: **manually dispatchable first**, scheduled
+  only once it is stable;
+- the token comes from a GitHub Actions secret, never reaches the logs, and the
+  job **skips cleanly when the secret is absent** — so forks and ordinary
+  contributor PRs are unaffected;
+- **bounded scope, because a canary is not an integration suite:** one
+  representative search, no booking, no mutation, no uncontrolled polling, an
+  explicit timeout, no secret in any output.
+
+**Measured state, which changes the size of this item (2026-10-04).** The live
+lane today contains **only the SerpApi provider probe** —
+`sdk/python/tests/test_serpapi_live.py`, 7 tests, all SerpApi, and it refuses to
+run without both `SERPAPI_KEY` and `LETSFG_SERPAPI_PROBE=1`. There is **no
+LetsFG-contract live test at all.** A workflow running `pytest -m live` today
+would be a SerpApi quota-spending probe wearing a canary's name, and would not
+detect LetsFG contract drift — the thing this item exists for. So step one is the
+**test**, not the workflow.
+
+**Change.**
+1. Write one LetsFG-contract live test: authenticate with `LETSFG_BEARER_TOKEN`,
+   issue **one** search, assert the shape a client depends on (envelope fields
+   present, `status` inside the vocabulary, offers parse) — and book nothing.
+2. Add the workflow: `workflow_dispatch` (+ optional `schedule` once stable),
+   `permissions: contents: read`, a job timeout, SHA-pinned actions and a
+   concurrency group — all enforced by `test/workflow-hygiene.test.mjs`.
+3. Gate every step on the secret being present, so an unset secret is a clean
+   skip rather than a red job.
+
+**Acceptance.** The workflow skips cleanly with no `LETSFG_BEARER_TOKEN`; with it,
+one real search runs and the assertion passes; the secret appears in no log.
+
+**Risk.** Low for the workflow. The honest cost is **one search per run** of the
+PFS allowance (10/10 min, 30/hour, 100/day) — the owner's decision to spend, and
+manual dispatch keeps it at zero until it is wanted.
 
 ---
 
