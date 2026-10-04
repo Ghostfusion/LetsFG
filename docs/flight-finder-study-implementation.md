@@ -160,12 +160,15 @@ for this item, not against it: the drift was caught by a test written for *that
 route*, not by anything structural, and the next route will not have one.
 
 **Change.**
-1. One `resolveCredentials()`/lane resolver per SDK (Python, JS, MCP) that returns
-   the chosen lane's base path, auth header and credential, plus the precedence
-   above.
+1. One lane resolver per SDK (Python, JS, MCP) implementing the **shared contract**,
+   returning a `ResolvedLane` — `lane`, `base_path`, `auth_scheme`, `credential` —
+   plus the precedence above. The contract is shared; the runtime code is not.
 2. Route every operation — search, poll, booking, hotels — through it; no
    operation reads `LETSFG_*` or hard-codes a lane's path.
-3. Keep the existing lane-route tests (they are the acceptance evidence) and add
+3. Enforce **credential/lane compatibility**: a bearer credential on the PFS lane,
+   an API key on the Developer lane, and neither offered to the other. This is the
+   cross-lane drift that actually happened, so it is asserted, not assumed.
+4. Keep the existing lane-route tests (they are the acceptance evidence) and add
    the per-SDK **lane-matrix** assertion: for each lane, the literal paths the
    SDK issues for search and booking.
 
@@ -242,18 +245,24 @@ Design P11/D11. **Promoted by the 2026-10-03 review from "deferred schema idea" 
 a Tier-1 integration requirement**, because it is the one finding in this study
 that changes what a price *means*.
 
-**The invariant.** Two axes that are never read for each other:
+**The invariant.** Three axes that are never read for each other:
 
 ```
-price evidence    advertised → observed → quoted → held → ticketed
-search outcome    results | partial | no_results | timeout | rate_limited | failed
+search outcome     results | partial | no_results | timeout | rate_limited | failed
+price evidence     indicative | observed | quoted | verified | stale | unavailable
+booking state      search_result | quote | hold | ticket | confirmed_itinerary
 ```
 
 with the rules: a retrieval that did not complete cannot promote a price; a price
 that was merely advertised cannot be presented as verified; `freshness=live`
-requires a live fetch; `price_status=verified` requires a verification outcome.
-The booking ladder is a **third** axis — `search result ≠ quote ≠ hold ≠ ticket ≠
-confirmed itinerary (PNR)` — and must not be conflated with either.
+requires a live fetch; `price_status=verified` requires a verification outcome;
+and **a booking state may never be read back as evidence about a price** — a hold
+is not a better quote, and a ticket is not a better observation. An earlier draft
+folded `held`/`ticketed` into the price ladder, which is exactly the conflation
+this item exists to prevent.
+
+`price_evidence` mirrors `price_status`; `quoted` is the one addition (a provider
+answering for a specific itinerary rather than advertising a route).
 
 **The constraint that decides the design.** This **extends the offer we already
 return; it does not model a second price**. No new field may duplicate
@@ -446,11 +455,14 @@ tests. Nothing below is claimed as done unless its line says so.
 - [ ] PFS and Developer lanes are tested on all three surfaces, against the
       six-row lane matrix
 
-**2. Evidence** (D11, P1.4) — *specified, not implemented*
-- [ ] the price-evidence ladder is machine-readable per offer
+**2. Evidence** (D11, P1.4) — *specified, not implemented; gated on Q5*
+- [ ] the three axes are machine-readable per offer, and booking state is not
+      folded into price evidence
+- [ ] the price-evidence grade is machine-readable per offer
 - [ ] a retrieval failure cannot promote a price
 - [ ] a stale observation cannot masquerade as fresh price evidence
 - [ ] the grade extends the existing offer; no field duplicates `price_status`
+- [ ] the grade is populated from what the lane actually observed, not defaulted
 
 **3. Search outcomes** (D9, P1.2) — *implemented for MCP*
 - [x] `no_results`, `partial`, `timeout`, `failed`, `rate_limited` are distinct,
@@ -460,21 +472,25 @@ tests. Nothing below is claimed as done unless its line says so.
       vocabulary (not a second enum) — design P10
 
 **4. Agent contract** (D11/P17) — *not scheduled*
-- [ ] every agent-facing operation documents the nine questions: meaning, what it
-      does **not** mean, freshness, retry, idempotency, quota, authority,
-      actionability, repeatability
+- [ ] every agent-facing operation documents the dimensions **that apply to it**:
+      meaning, what it does **not** mean, freshness, retry, idempotency, quota,
+      authority, actionability, repeatability
 - [ ] the booking ladder is stated where booking is documented
 - [ ] at least the load-bearing ones are asserted, not just written
 
 **5. Distribution** (D14/P3.2) — *not scheduled*
-- [ ] fresh-venv `pip install` runs a real search
-- [ ] fresh `npm install` imports and runs
-- [ ] `npx letsfg-mcp` completes `initialize` → `tools/list` → one tool call
+- [ ] **hermetic** install smoke, no credential and no provider: fresh-venv
+      `pip install` starts the CLI; fresh `npm install` imports; `npx letsfg-mcp`
+      completes `initialize` → `tools/list`
+- [ ] **gated** live smoke, `LETSFG_BEARER_TOKEN` present: one real search per
+      artifact
 - [ ] upgrade from a pinned older release, not just a fresh install
 
-**6. Build identity** (D14) — *not scheduled*
+**6. Build identity** (D14, chained to D13) — *not scheduled*
 - [ ] the packaged artifact reports its version **and the 40-hex commit it was
       built from**, and the SHA identifies that exact revision
+- [ ] that SHA is the one a release tag binds to (D13), so the chain
+      tag → version → commit → required checks → artifact is closed end to end
 
 **Not part of this bar:** CI hardening, Dependabot, PR/issue templates, the
 changelog, the dead-code ledger, file-size caps, the Makefile or the screenshot
@@ -536,18 +552,26 @@ python -m mkdocs build                                                # exit 0
 Design §5 fixes the tiers; numerical order is not implementation order. The
 integration surface comes first, because it is the reason for the study.
 
-**Tier 1 — flight-platform correctness (the integration surface)**
+**Tier 1 — contract foundations (the integration surface)**
 
-1. **P1.4 §1** — answer design §4 **Q5** (which existing offer field carries the
-   evidence grade) *before* any code. It is a written answer, and it is what stops
-   a second parallel price model.
-2. **P1.1 (rest)** — one lane/credential resolver per SDK, with the six-row lane
-   matrix asserted per package. Structural, so it needs an owner nod (rule 4).
-3. **P1.4 §2–3** — the grade on the offer, with the two promotions prohibited.
-4. **P1.3** — establish the limiter's scope and failure direction by measurement
+Ordered by dependency (design §4's gate map), not by importance:
+
+1. **P1.1 (rest)** — one lane-resolution contract, one implementation per SDK,
+   returning a `ResolvedLane`, with credential/lane compatibility asserted.
+   Structural, so it needs an owner nod (rule 4).
+2. **P1.2 (rest) + design Q6** — settle the error taxonomy, then carry the
+   search-outcome discrimination to the Python and JS surfaces. P11 depends on
+   outcomes being settled first.
+3. **P1.4 + design Q5** — the three-axis offer contract. Step 1 is a *written
+   answer* to Q5 (which existing offer field carries the grade, and which it must
+   not duplicate) before any code, because this is the item most likely to create
+   a second price model.
+4. **D11 / acceptance bar §4** — operational semantics, documenting the contract
+   that by now exists.
+5. **P1.3** — establish the limiter's scope and failure direction by measurement
    (trvl §6 Q8), then document it. Nothing downstream may assume it beforehand.
-5. **P2.1** — PR/issue templates with the surface × lane × operation enums; the
-   cheapest way to make every future report triageable.
+6. **P2.1** — PR/issue templates with the surface × lane × operation enums. Valuable,
+   but an observability contract: it follows the platform semantics, not leads them.
 
 **Tier 2 — distribution and API correctness**
 

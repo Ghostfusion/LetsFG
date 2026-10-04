@@ -33,7 +33,7 @@ Scale for calibration: 1092 tracked files, 232 test files, 8 workflows,
 907-line hand-written `API.md`, 6 version points kept in lockstep
 (`AGENTS.md` "Monorepo layout"; verified all at `0.15.0`).
 
-## 0.1 Scope — the integration surface, and everything else
+## 0.1 Scope — the integration surface vs incidental repository findings
 
 This study answers one question: **what should LetsFG take from
 `affromero/flight-finder` to improve its flight search, price evidence and
@@ -88,8 +88,8 @@ study as the reason LetsFG has a PR template. The register in §3 carries a
 | LLM extraction pipeline | **Reject** — no extraction happens client-side |
 | Price evidence model (observation vs attempt vs estimate) | **Adopt-adapt** — the one idea with direct architectural value (P11) |
 | Search-attempt semantics (`success`/`partial`/`failed` + `snapshotsCount`) | **Adopt** — as the outcome axis of our envelope (P10) |
-| Provider health semantics (positive-evidence capability flag) | **Adopt** — `no_results` needs proof (P10) |
-| Credential resolver with written precedence | **Adopt** — one resolver per SDK, lane matrix (P9) |
+| Search-result validity semantics (positive-evidence capability flag) | **Adopt** — `no_results` needs proof *and* complete coverage (P10) |
+| Credential resolver with written precedence | **Adopt** — one lane-resolution *contract*, one implementation per SDK (P9) |
 | Response-envelope adoption measurement | **Adopt-adapt** — we already assert it structurally; the lesson is *every advertised surface is classified* (P7) |
 | Agent-facing operational semantics in the API reference | **Adopt** — with assertions (P17) |
 | Install/upgrade/publication verification | **Adopt-adapt** — fresh installs, packaged entry points, build identity (P14) |
@@ -156,6 +156,14 @@ work is done — but "stop it accumulating again", which is what a ledger with
 reviewed exceptions is for. Two cautions stand: the shared action does JS/TS
 reachability (`knip`) and Rust (`cargo-machete`), **Python support is unverified**,
 and it is a single-maintainer composite — pin it by SHA as they do, or vendor.
+
+**What the ledger governs, and what it does not.** It applies to *unresolved
+findings* — dead code the gate reports that nobody has decided about yet. It does
+**not** require retaining dead code that qualifies as an existing defect under
+working-agreement rule 3: when the dead weight is observable and removable now
+(which is what happened to the four examples above), it is fixed, not parked. The
+ledger is for the residue the reviewer has to judge, and the reason it must carry
+one is so the judgement is recorded rather than repeated.
 
 ---
 
@@ -408,14 +416,22 @@ books and polls on `/flights/*` and never on `/bookings/book`
 (`envelope.test.ts`). That is the point: the drift was caught by a test written
 *for that route*, not by anything structural. The next route will not have one.
 
-**The invariant, stated properly.** Every public SDK/MCP operation resolves its
-**lane, base path, authentication mechanism and credential source through one
-canonical resolver**; no operation-level code may infer lane configuration
-itself. Operation code must not know how credentials are selected — it asks for
-"the flight-search operation" and receives the URL, the headers and the
-credential already chosen.
+**The invariant, stated properly.** There is **one canonical lane-resolution
+contract**, and **one implementation of it per SDK** — the contract is shared, the
+runtime code is not. Python, JS and MCP implement the same matrix and the same
+precedence; they do not share an artifact, and nothing here requires them to.
 
-The matrix that resolver owns, one row per surface × lane:
+> **The resolver is authoritative for lane, base path, authentication mechanism
+> and credential selection. Operation code may consume the resolved
+> configuration but may not independently derive any of those values.**
+
+"Consume the resolved configuration" is a shape, not a promise, so it is named:
+the resolver returns a **`ResolvedLane`** carrying **`lane`, `base_path`,
+`auth_scheme`, `credential`**. That is what makes the invariant testable — a
+`resolveLane()` that returns only `"pfs"` while URL and auth selection stay
+scattered across call sites does **not** satisfy it, and the test can say so.
+
+The matrix that contract defines, one row per surface × lane:
 
 | Surface | Lane | Auth | Base path | Credential |
 |---|---|---|---|---|
@@ -429,6 +445,16 @@ The matrix that resolver owns, one row per surface × lane:
 The precedence is `explicit argument → environment → saved config`, and it stays
 as it is today; what changes is that it is written **once per SDK** instead of
 re-derived at every call site.
+
+**One more invariant, because this is the cross-lane drift that actually
+happened:** the credential must be **compatible with the resolved lane**. A PFS
+lane takes a bearer credential; a Developer lane takes an API key. So an explicit
+API key must not be paired with a bearer lane, and a saved `pfs_auth` token must
+never be offered as a Developer credential. Stating the precedence without this
+leaves open exactly the hole the resolver exists to close.
+
+**Transferable principle:** lane and authentication configuration must have one
+authoritative source, and operation code may not re-derive it.
 
 ---
 
@@ -456,11 +482,20 @@ facts, and collapsing them produces a silent false negative that runs forever.
 `partial`/`timeout` envelope split, and their phrasing is the best one-line
 statement of it: a "no results" verdict needs a *positive* criterion.
 
-**The invariant, stated so it can be asserted.** **LetsFG must never convert an
-unsuccessful search attempt into `no_results` merely because the normalised offer
-list came back empty.** An empty list is the *observation*; whether it means "no
-flights exist" is a separate claim that needs a criterion — a completed search
-with declared-complete coverage over the requested route and dates.
+**The invariant, stated so it can be asserted.**
+
+> **LetsFG must never convert an unsuccessful search attempt into `no_results`
+> merely because the normalised offer list came back empty. `no_results` requires
+> both successful execution *and* declared-complete coverage for the requested
+> search domain.**
+
+Both halves are load-bearing, and the second is the one that gets forgotten:
+`status = completed` with `coverage_mode = partial` and an empty offer list is
+**not** a `no_results` — it is a partial read of a market we did not finish
+looking at. That is the same rule as "`no_results` is prohibited whenever coverage
+is degraded" (`trvl-study-design.md` §2.1), restated as the positive requirement
+rather than the prohibition, because a positive requirement is what a test can
+assert directly.
 
 An empty list can arise from at least seven different causes, and only the first
 is a result:
@@ -492,6 +527,9 @@ represented — "unsupported route" and "malformed response" are the two candida
 — extend `empty_reason`/`status` in the one vocabulary, with a test, rather than
 starting a second one.
 
+**Transferable principle:** an empty result is not evidence of no results unless
+execution succeeded *and* coverage is complete.
+
 ---
 
 ### P11. Model the distance between an observation, an estimate, and a verified fact `[ADOPT-ADAPTED]`
@@ -518,53 +556,66 @@ alerts and, in our domain, disputes.
 **Verdict.** `[ADOPT-ADAPTED]`, and **promoted: this is an integration
 requirement, not a deferred schema idea.**
 
-**Two axes, never collapsed.** A price fact and a search outcome are different
-questions, and either can be strong while the other is weak:
+**Three axes, never collapsed.** An execution outcome, a price fact and a
+transactional state are different questions, and any one of them can be strong
+while another is weak. An earlier draft of this section folded `held` and
+`ticketed` into the price ladder; that was wrong. They are *commercial states*,
+not stronger observations of a price, and mixing them is precisely how an agent
+ends up presenting a ticket as a well-evidenced fare.
 
 ```
-price evidence     advertised → observed → quoted → held → ticketed
 search outcome     results | partial | no_results | timeout | rate_limited | failed
+price evidence     indicative | observed | quoted | verified | stale | unavailable
+booking state      search_result | quote | hold | ticket | confirmed_itinerary
 ```
 
-All of these are coherent, and they mean different things:
+The vocabulary is not new: it is our `price_status` with the booking states lifted
+out of it. The axes then line up like this, and every row is coherent:
 
 ```
-price_evidence=observed   search_outcome=partial     the market is real, our read of it was not complete
-price_evidence=quoted     search_outcome=results     strongest useful pair today
-price_evidence=none       search_outcome=no_results  a positive empty
-price_evidence=none       search_outcome=timeout     we do not know
+search_outcome=partial    price_evidence=observed    booking_state=search_result  the market is real, our read of it was not complete
+search_outcome=results    price_evidence=quoted      booking_state=quote          the strongest useful pair today
+search_outcome=no_results price_evidence=unavailable booking_state=search_result  a positive empty
+search_outcome=timeout    price_evidence=unavailable booking_state=search_result  we do not know
+search_outcome=results    price_evidence=verified    booking_state=hold           a verified fare, held on a card
 ```
 
-**We already have the axes** — this is not a new model to invent. The MCP
-envelope separates execution (`status`) from coverage (`completeness`,
-`coverage_mode`) from temporality (`freshness`, `observed_at_basis`), and the
-provider contract carries `price_status ∈ {indicative, observed, verified, stale,
-unavailable}` plus a verification outcome. What is missing is not a second
-schema but **the price-evidence ladder made explicit and machine-readable per
-offer**, and the rule that stops the two axes being read for each other:
+`price_evidence` deliberately mirrors `price_status ∈ {indicative, observed,
+verified, stale, unavailable}`; **`quoted` is the one addition**, and it is the
+point at which a provider answers for a *specific itinerary* rather than
+advertising a route. `booking_state` is the axis that must never be read as
+evidence: a hold is not a better quote, and a ticket is not a better observation.
+
+**We already have the axes** — this is not a model to invent. The MCP envelope
+separates execution (`status`) from coverage (`completeness`, `coverage_mode`)
+from temporality (`freshness`, `observed_at_basis`), and the provider contract
+already carries `price_status` and a verification outcome. **What is missing is
+not another evidence vocabulary. It is the explicit per-offer contract, and the
+invariants governing how `price_status`, verification outcome, freshness and
+search completeness interact** — the four facts that are currently each true on
+their own and never checked against each other:
 
 > A retrieval that did not complete cannot promote a price, and a price that was
 > merely advertised cannot be presented as verified. `freshness=live` requires a
-> live fetch; `price_status=verified` requires a verification outcome.
+> live fetch; `price_status=verified` requires a verification outcome; and a
+> booking state may never be read back as evidence about a price.
 
-**The booking ladder is a third, separate axis** and must not be conflated with
-either:
-
-```
-search result ≠ quote ≠ hold ≠ ticket ≠ confirmed itinerary (PNR)
-```
-
-`AGENTS.md` already states the important half — a hold is not a charge, and only
+The booking axis therefore stops being "a third axis noted after the fact": it is
+one of the three, stated up top, and the distinction it protects is the one
+`AGENTS.md` already carries in prose — a hold is not a charge, and only
 `completed` with a PNR means booked. The requirement is that every offer carries
-its evidence grade *and* that the API reference asserts these distinctions (P17),
-because an agent that reads a search result as a quote is the failure this whole
-pattern exists to prevent.
+its grade *and* that the reference asserts these distinctions (P17), because an
+agent that reads a search result as a quote is the failure this pattern exists to
+prevent.
 
 **Deliberate constraint.** The ladder is added to the *existing* offer contract,
 not as a parallel one: no field may duplicate `price_status`, and nothing may
 promote an offer to `verified` without a verification result. This is the
 implementation doc's P11 work, and it is the reason that item is specified as
 "extend the offer, do not model a second price".
+
+**Transferable principle:** execution outcome, price evidence and booking state
+are independent dimensions, and none may be read as another.
 
 ---
 
@@ -644,7 +695,7 @@ because a guard nobody can locate is a guard that gets bypassed:
 |---|---|---|
 | **Repository invariants** | every job has `timeout-minutes`; every workflow declares least-privilege `permissions`; every `uses:` is SHA-pinned with a version comment; checkouts do not persist credentials; push/PR runs set a concurrency group with the right cancellation policy | `test/workflow-hygiene.test.mjs` — **implemented** |
 | **Documentation invariants** | manifest versions agree; every advertised MCP tool is documented; the OpenAPI server + paths compose to the documented base; every local markdown link resolves; the changelog's newest release equals the manifests | `test/docs-claims.test.mjs` — **implemented** |
-| **Release invariants** | tag ↔ version ↔ commit SHA ↔ required checks for that SHA | **nothing yet** — `git tag \| wc -l` is 0, so there is no convention to assert (P14, trvl D13) |
+| **Release invariants** | tag ↔ version ↔ commit SHA ↔ required checks for that SHA, and the artifact carrying the same SHA | **convention test can land now**; the live assertion activates with the first tag. A tag count of 0 is not a reason to leave the *schema* unchecked — a test can assert that the release workflow exists, that required checks are declared, that the version source is discoverable, and that the release script rejects a mismatch, before any of it has ever run |
 
 The split is also a locator: "why did CI fail" has one answer per class instead of
 one 400-line file.
@@ -685,13 +736,19 @@ whole pattern rests on:
 Our distribution is PyPI + npm + `npx letsfg-mcp` (+ the published MCP endpoint),
 so the concrete matrix is:
 
-| Artifact | Smoke test |
-|---|---|
-| `letsfg` (PyPI) | fresh venv → `pip install -U letsfg` → `letsfg --version` → one real search |
-| `letsfg` (npm) | fresh prefix → `npm install letsfg` → import the package → one real search |
-| `letsfg-mcp` (npm) | `npx -y letsfg-mcp` → `initialize` → `tools/list` → one representative tool call |
-| hosted MCP | `initialize` → `tools/list` against `letsfg.co/developers/api/mcp` |
-| Docker image (if published) | start → `initialize` → health/version → representative request |
+| Artifact | Install smoke — **hermetic**: no credential, no provider | Live smoke — **gated** |
+|---|---|---|
+| `letsfg` (PyPI) | fresh venv → `pip install -U letsfg` → `letsfg --version` → CLI starts | one real search with `LETSFG_BEARER_TOKEN` |
+| `letsfg` (npm) | fresh prefix → `npm install letsfg` → import the package | one real search, gated the same way |
+| `letsfg-mcp` (npm) | `npx -y letsfg-mcp` → `initialize` → `tools/list` → a call that needs no credential | a call that reaches the API |
+| hosted MCP | — | `initialize` → `tools/list` → one call against `letsfg.co/developers/api/mcp` |
+| Docker image (if published) | start → `initialize` → version | a representative request |
+
+**Why the split is not cosmetic:** an install test that needs a credential and a
+live provider is not an install test, it is an integration test wearing one — it
+fails for reasons the package did not cause, and it cannot run on a fork or a
+contributor's PR. It is the same distinction D15 draws for the suites, applied to
+artifacts.
 
 The README claims `pip install -U letsfg` "gives you the `letsfg` CLI command"
 and that `npx letsfg-mcp` works; **nothing verifies either claim today**. The
@@ -737,8 +794,8 @@ refactor.
 `sdk/mcp/src/index.ts` (1291), `cli.py` (1103) and `sdk/js/src/index.ts` (1091).
 Acting on it would require refactors, which our working agreement rule 4
 explicitly forbids without an owner request — so this is recorded as an owner
-decision, not queued. The *grandfathering* design is what makes it adoptable at
-all; a naive cap would fail on day one.
+decision, not queued. The *grandfathering* design is what makes the policy
+**incrementally adoptable** — a naive cap would fail on day one.
 
 ---
 
@@ -812,6 +869,9 @@ search result ≠ quote ≠ hold ≠ ticket ≠ confirmed itinerary (PNR)
 This is more valuable than another endpoint: for an agent-facing product the
 failure mode is misreading a status, not malforming a request.
 
+**Transferable principle:** for an agent-facing surface, the most valuable line
+in a reference is what a status does *not* mean.
+
 ---
 
 ### P18. Makefile as a discovery surface `[DEFER]`
@@ -882,15 +942,15 @@ happened to surface, and they stand on their own defects.
 | D5 | Extend Dependabot to npm + pip with grouping and cooldown | Repository hygiene | `[ADOPT]` | `sdk/js`, `sdk/mcp` and the Python deps are unmanaged; `github-actions` alone is not enough. |
 | D6 | PR template with a mandatory verification section and consent block | Contributor workflow | `[ADOPT]` | Codifies rules 3/4 at the merge surface. Their issue-link requirement does **not** conflict with our commit-subject rule (PR body ≠ commit subject) — do not "fix" that later. |
 | D7 | Issue template requiring **surface × lane × operation** and the error/envelope code | Triage | `[ADOPT]` | Surface (`python-sdk`/`js-sdk`/`mcp`/`qml`) and lane (`pfs`/`developer`) are **orthogonal** — an enum, not a single dropdown — and `fix_hint_code` is a first-class field. |
-| D8 | **One canonical lane/credential resolver per SDK**, pinned by a lane-matrix test | **Integration architecture** | `[ADOPT]` | Every operation resolves lane, base path, auth mechanism and credential source through it; **no operation-level code may infer lane configuration**. 28 scattered `LETSFG_*` reads (5 MCP / 8 JS / 15 Python); the drift it prevents has already happened once (P9). |
+| D8 | **One canonical lane-resolution contract** — one implementation per SDK — pinned by a lane-matrix test | **Integration architecture** | `[ADOPT]` | The resolver is authoritative for lane, base path, auth mechanism and credential, and returns them as one `ResolvedLane`; **no operation-level code may derive any of those values itself**, and the credential must be compatible with the resolved lane. 28 scattered `LETSFG_*` reads (5 MCP / 8 JS / 15 Python); the drift it prevents has already happened once (P9). |
 | D9 | **Positive evidence required for `no_results`**; retrieval failure is never converted into it | **Flight-search semantics** | `[ADOPT]` | "LetsFG must never convert an unsuccessful search attempt into `no_results` because the offer list is empty." Expressed with the existing `status` × `empty_reason` × `coverage_mode`, **not** a second status enum. |
 | D10 | Publish **scope, counter, window, failure direction and response** for every limiter | Reliability | `[ADOPT]` | Fail-open vs fail-closed must be a decision, not an accident. Blocked on the trvl study's limiter probe (Q8) for our own numbers. |
-| D11 | **Operational semantics as a documentation contract**, with assertions | **API contract** | `[ADOPT]` | The nine questions in P17 plus the booking ladder `result ≠ quote ≠ hold ≠ ticket ≠ PNR`, moved from `AGENTS.md` into the reference and pinned. |
+| D11 | **Operational semantics as a documentation contract**, with assertions | **API contract** | `[ADOPT]` | Every agent-facing operation documents the dimensions in P17 **that apply to it** — a read-only profile call has no booking-retry semantic — plus the ladder `search result ≠ quote ≠ hold ≠ ticket ≠ PNR`, moved from `AGENTS.md` into the reference and pinned. |
 | D12 | CHANGELOG with provenance links and an `[Unreleased]` section | Documentation | `[ADOPT]` — **done 2026-10-03** | Deliberate divergence from theirs: `[Unreleased]` makes the version check possible, and it is now asserted. |
-| D13 | Tag↔version↔commit binding, and required checks for *that* SHA | Release integrity | `[ADOPT]` | Our docs-claims test covers manifest↔manifest only. Blocked: `git tag` is empty, so there is no convention to assert (trvl D13). |
-| D14 | Fresh-install and packaged-entry-point smoke tests; **build identity = version + immutable commit SHA** | Integration / release | `[ADOPT-ADAPTED]` | `pip install` and `npx letsfg-mcp` are unverified claims in our README; a version literal cannot identify a revision. |
+| D13 | Tag↔version↔commit binding, and required checks for *that* SHA | Release integrity | `[ADOPT]` | One end-to-end chain with D14: **an artifact is releasable only if its version and source SHA correspond to a release tag whose exact commit passed the required checks.** Blocked on a tagging convention — `git tag` is empty (trvl D13). |
+| D14 | Fresh-install and packaged-entry-point smoke tests; **build identity = version + immutable commit SHA** | Integration / release | `[ADOPT-ADAPTED]` | The artifact must carry the SHA that D13's tag binds to, or build identity is decoration. Installs are verified hermetically; a real search is a **gated** live test, not part of the install smoke. |
 | D15 | **Explicit test execution classes, hermetic by default** | Test architecture | `[ADOPT-ADAPTED]` | Renamed from "per-module markers replacing the quarantine list" — that mechanism is already obsolete here, and `pytest -m "not live"` is stronger than filename suffix + env flag. |
-| D16 | 1000-line file cap + ≤10 files/dir pre-commit hooks | Repository architecture | `[DEFER]` | Would require refactors forbidden by rule 4; owner decision. The grandfathering design is what makes it adoptable at all. |
+| D16 | 1000-line file cap + ≤10 files/dir pre-commit hooks | Repository architecture | `[DEFER]` | Would require refactors forbidden by rule 4; owner decision. The grandfathering design is what makes the policy incrementally adoptable. |
 | D17 | Committed screenshot archive under `docs/` | Docs pattern | `[REJECT]` | Zero inbound references; undiscoverable. Keep visual evidence in PR bodies. |
 | D18 | Makefile | Ergonomics | `[DEFER]` | Ergonomics only; rule 4 excludes it. |
 | D19 | **Depend on** the third-party maintenance action | Repository hygiene | `[DEFER]` | The implementation, not the policy. Pin by SHA if adopted; verify Python coverage in `scripts/audit.py` first; consider vendoring. |
@@ -923,21 +983,55 @@ happened to surface, and they stand on their own defects.
    between "become a LetsFG status" and "keep the provider's detail alongside it"
    is unresolved, and it is the prerequisite for P10's table being complete.
 
+### These are gates, not curiosity
+
+None of the six is a question the study leaves hanging; each is a
+**prerequisite** — a decision or an implementation cannot be specified until the
+answer exists. Classified:
+
+| # | Kind | Blocks |
+|---|---|---|
+| Q1 | tooling feasibility | D19 (and only D19 — D1's policy is adoptable either way) |
+| Q2 | migration inventory | D8 |
+| Q3 | external behaviour, needs a live probe | D10 |
+| Q4 | policy choice | trvl P1.4 (the live-probe workflow) |
+| Q5 | **contract gate** | P11 — and therefore D11's search half |
+| Q6 | **error-taxonomy gate** | D9/P10's table, and the SDK surfaces of P1.2 |
+
+So the dependencies run:
+
+```
+Q2 ──→ D8 ──┐
+            │
+Q6 ──→ D9 ──┼──→ P11 ←── Q5 ──→ D11 ──→ D13/D14
+            │
+Q3 ──→ D10 ─┘
+Q1 ──→ D19
+```
+
+Read it as: **nothing downstream of a gate may be implemented before the gate is
+answered**, which is why the implementation document's suggested order starts with
+a written answer rather than with code.
+
 ## 5. Priority ordering
 
 Numerical order is not implementation order. The integration surface first,
 because it is the reason for the study; repository work after, because it is
 independent.
 
-**Tier 1 — flight-platform correctness (the integration surface)**
+**Tier 1 — contract foundations (the integration surface)**
 
-| Item | Why first |
-|---|---|
-| D8 lane/credential resolver | one lane definition; the drift it prevents already happened once |
-| D9 positive evidence for `no_results` | an agent must never read "unknown" as "none" |
-| D11 + P11 evidence ladder and agent semantics | search result ≠ quote ≠ hold ≠ ticket |
-| D10 limiter scope and failure direction | an undocumented limiter is an outage waiting to be discovered |
-| D7 structured failure diagnosis (surface × lane × operation) | makes every future report triageable |
+Ordered by dependency, not by importance — each item is only implementable once
+the one above it has an answer:
+
+| # | Item | Why here |
+|---|---|---|
+| 1 | **D8** lane/credential resolver | establishes transport and auth identity; everything else is expressed in terms of a lane |
+| 2 | **D9 + Q6** search-outcome and error semantics | P11 cannot separate price evidence from execution outcome until the outcomes are settled |
+| 3 | **P11 + Q5** the three-axis offer contract | the offer contract must be resolved before anything is written against it |
+| 4 | **D11** operational semantics | documentation describes a contract that, by now, exists |
+| 5 | **D10 + Q3** limiter scope and failure direction | gated on an external measurement (trvl §6 Q8) that this study cannot perform |
+| 6 | **D7** triage metadata (surface × lane × operation) | valuable, but it is an observability contract, whereas D8/D9/P11 define the platform's semantics — so it follows them rather than leading |
 
 **Tier 2 — distribution and API correctness:** D14 (installs, packaged entry
 points, build identity), D13 (tag ↔ version ↔ SHA), D3 (already done).
