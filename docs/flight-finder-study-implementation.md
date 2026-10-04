@@ -506,7 +506,8 @@ tests. Nothing below is claimed as done unless its line says so.
 - [ ] a stale observation cannot masquerade as fresh price evidence
 - [ ] the grade is populated from what the lane actually observed, not defaulted
 
-**3. Search outcomes** (D9, P1.2) — *implemented for MCP; vocabulary decided (Q6)*
+**3. Search outcomes** (D9, P1.2) — *implemented for MCP; vocabulary decided (Q6);
+Python/JS audited 2026-10-04*
 - [x] `no_results`, `partial`, `timeout`, `failed`, `rate_limited` are distinct,
       and `no_results` requires a present-and-empty list with legal coverage
 - [ ] the same discrimination on the Python and JS SDK surfaces
@@ -517,6 +518,37 @@ tests. Nothing below is claimed as done unless its line says so.
       `retry_after_seconds`) and is never the machine contract
 - [ ] `empty_reason` still explains only an empty result set — it has not grown
       into a second error taxonomy
+
+**Verified 2026-10-04 — every error-construction site in both SDKs was audited,
+and five defects were fixed** (`e2f6f31`, `2b7ab79`, `174da9d`, `646bd61`,
+`82b889c`):
+
+| Defect | Was | Now |
+|---|---|---|
+| Python free lane, exhausted poll | returned `{"offers": [], "total_results": 0}` — a 3-minute timeout indistinguishable from a genuine empty, printed as *"No flights found"* with exit 0 | raises `LetsFGError(504, SUPPLIER_TIMEOUT)` carrying the `search_id` |
+| JS PFS poll timeout | thrown with no `errorCode` → `business`, `isRetryable: false`; message said poll `/api/results/<id>` | `SUPPLIER_TIMEOUT`, transient, real `search_id` |
+| Python `AuthenticationError` (`_require_api_key`) | `error_code == ""` | defaults to `AUTH_INVALID` (JS already did) |
+| Python free-lane `BearerTokenError`; both `register` handlers | no field at all / no code | fields added; `register` reuses the seam's inference |
+| Missing required argument (4 sites) | Python raised a bare `ValueError` — outside the taxonomy, so `except LetsFGError` never caught it; JS threw code-less | `ValidationError`/`MISSING_PARAMETER`, the code the docs already name for it |
+
+**What that leaves, and precisely why each needs a decision, not engineering:**
+
+1. **`partial` / degraded coverage — absent on both SDKs.** Needs the Q6
+   vocabulary (a status *and* a completeness notion), so it is the same decision
+   the envelope already made for MCP.
+2. **`auth_required` vs `auth_failed`** — the design's own "one name, chosen
+   once", spanning three surfaces. MCP ships `auth_required`; the study proposes
+   `auth_failed`. Nothing here can pick for you.
+3. **`retry_after`** — neither SDK reads response headers at all (they discard
+   them); only MCP parses `Retry-After`. Adding it is new behaviour.
+4. **Five retired-endpoint refusals** (Python `unlock`/`setup_payment`/
+   `start_checkout`, JS `unlock`/`setupPayment`) — **none of the 18 existing codes
+   is honest for "this method was retired"**. `_infer_error_code(410, …)` would
+   return `OFFER_EXPIRED`, but a retired *route* is not an expired *offer*;
+   reusing it would be a lie, and inventing a name is the "chosen once" decision
+   above. Python already reports `status_code: 0` for these (a request is never
+   made); JS reports `410`, which attributes to an exchange that did not happen —
+   the same conflation `withRefusal` avoids in the MCP envelope.
 
 **4. Agent contract** (D11/P17) — *not scheduled*
 - [ ] every agent-facing operation documents the dimensions **that apply to it**:
@@ -621,7 +653,10 @@ Ordered by dependency (design §4: Q2, Q5 and Q6 are answered; Q3 is not):
    credential/lane compatibility asserted. Structural, so it needs an owner nod
    (rule 4).
 2. **P1.2 (rest)** — carry the search-outcome discrimination to the Python and JS
-   surfaces, using the Q6 vocabulary rather than a new one.
+   surfaces, using the Q6 vocabulary rather than a new one. **Audited
+   2026-10-04** (acceptance bar §3): five defects fixed; what remains is
+   `partial`/coverage, the `auth_required` vs `auth_failed` name, `retry_after`,
+   and the retired-endpoint refusals — each a decision, not engineering.
 3. **P1.4** — the three-axis contract: confirm whether `price_status` + the
    verification outcome already express the semantics (Q5), and if so add only the
    no-promotion policy. The written answer still comes before code.
