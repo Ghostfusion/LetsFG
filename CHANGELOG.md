@@ -57,6 +57,14 @@ a heading carries:
 
 ### Fixed
 
+- Python: `search_local` returned `{"offers": [], "total_results": 0}` when the
+  search never reached a terminal status, so a ~3-minute timeout was
+  indistinguishable from a genuine "nothing flies this route". `letsfg search`
+  therefore printed *"No flights found for GDN → BCN on …"* — a claim about the
+  market the server never made — and exited 0. It now raises
+  `LetsFGError(status_code=504, error_code=SUPPLIER_TIMEOUT)` carrying the
+  `search_id`, so a caller can poll `/api/results/<id>` itself. The JS SDK
+  already threw on this path; Python was the outlier. (e2f6f31)
 - MCP: a refusal the server makes itself — a missing credential, a missing
   argument — returned a bare `{error}` with no envelope, so a caller could not
   tell a validation refusal from a transport failure. Every local refusal now
