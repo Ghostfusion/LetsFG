@@ -247,6 +247,14 @@ match what the docs claim, and that the two documents are in the MkDocs nav.
 **Acceptance:** `node --test test/docs-claims.test.mjs` green, and red if one side
 of a documented pair is edited alone.
 
+**Implemented 2026-10-03** — three pins, each a pair:
+the two documents are in the MkDocs nav; the committed capability profile's
+`searches_per_month` and `account_rate_limit_per_hour` must appear in the design's
+Starter row (so a re-probe on a different plan fails until D12 is updated with it);
+and `SERPAPI_KEY` must be the name the adapter declares, the design documents and the
+registry gates on, because one letter separates it from the Serper.dev name it has
+already been misfiled against. `node --test` now reports 17 cases, all green.
+
 ---
 
 ## 4. Phase P2 — the adapter (`CODE`, D1 resolved yes)
@@ -316,6 +324,21 @@ sanitised.
 
 **Acceptance:** green on the existing lanes **before** the adapter is registered, so
 the suite cannot be written to fit the newcomer.
+
+**Blocked 2026-10-03 on a decision, not on effort.** The acceptance clause presupposes
+that the two existing lanes expose a provider-contract surface for a suite to run
+against, and they do not: the PFS lane (`local.py`) and the Developer API lane
+(`client.py`) are first-party HTTP clients whose offers are the *dataclass* models in
+`letsfg/models/__init__.py`, with no provenance, no `coverage_mode`, no `price_status`
+and no verification outcome — the provider contract exists only in
+`letsfg/connectors/provider_contract.py`, which the adapter implements. So the choice is
+either to declare the suite **adapter-scoped** with the first-party lanes exempt by
+design (a documentation and design change), or to give those lanes provider-contract
+surfaces, which is real new scope for both of them. Its observable criteria that *do*
+apply to this adapter are already guarded: status ceiling, provenance on every
+observation, freshness never fabricated, `no_results` ≠ `timeout`, completeness against
+the declared coverage, and the public shape going through `to_public_offer`
+(`tests/test_serpapi_adapter.py`).
 
 ---
 
