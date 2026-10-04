@@ -139,6 +139,14 @@ All five are reached through one endpoint: `GET https://serpapi.com/search`.
   `Processing` → `Success` | `Error`. **`Success` explicitly includes empty
   results** — an empty answer is not an error.
 - A failed search still carries a top-level `error` string.
+- **An empty `Success` also carries a top-level `error` string — measured 2026-10-03.**
+  A filter that matches nothing (`include_airlines` set to a code no airline uses)
+  answers HTTP 200 with `search_metadata.status: Success`, zero itineraries **and**
+  `"error": "Google Flights hasn't returned any results for this query."` The
+  presence of `error` therefore does **not** mean failure. Classification reads
+  `search_metadata.status` and nothing else (§11): an adapter that branched on
+  `error` would report `failed`/`timeout` for a legitimate empty result and destroy
+  the `no_results` distinction the scanner's coverage contract is built on.
 - `search_metadata.id` is a durable handle for the **Search Archive**
   (`GET https://serpapi.com/searches/{id}.json`), which serves `json` or `html`
   for **31 days**, and answers `410 Gone` afterwards.
@@ -164,6 +172,9 @@ All five are reached through one endpoint: `GET https://serpapi.com/search`.
 - "Only **successful** searches are counted… Cached, errored, and failed searches
   are not." Results-count does not matter: 100 results or an empty set both count
   as one search — **so an empty result costs quota while a failure does not.**
+  **Measured 2026-10-03 (Starter plan, by the committed probe):** two
+  empty-but-successful searches moved `this_month_usage` by 2, so this is evidence
+  rather than vendor prose. It is the fact D9's ledger turns on.
 - Cache lifetime is **1 hour**, keyed on the exact query plus all parameters;
   `no_cache=true` forces a fresh fetch and is therefore the *only* way to be sure
   a price was observed now.
@@ -190,7 +201,11 @@ points the adapter depends on:
   floor and treats the account value as a ceiling, never the reverse.
 - The counters are **lagged** — across a measured batch, `this_month_usage` moved
   *backwards* by one when a cache hit occurred (§10). They are usable for coarse
-  reconciliation, not for attributing a single call.
+  reconciliation, not for attributing a single call. **Measured directly
+  2026-10-03:** the committed probe counts the searches it issues and compares that
+  with the account's count; at one read the account was **six searches behind**.
+  That is D20 confirmed from a single controlled run rather than from a batch
+  anomaly, and it is why the ledger is client-side.
 
 ### 4.4 Response fields, verified shapes
 
@@ -628,6 +643,12 @@ searched" are different claims. And per the positive-evidence rule, an empty
 result is **not** evidence that a route is unserved — only evidence that this
 query, these filters, this time returned nothing.
 
+**And `error` is not a failure signal.** An empty `Success` carries a top-level
+`error` string too (§4.2, measured), so the classifier reads
+`search_metadata.status` — never the presence of `error`, which would turn every
+legitimate empty result into a `timeout` and lose the only distinction the coverage
+contract has to work with.
+
 ---
 
 ## 12. Pitfalls already paid for, and the traps that remain
@@ -684,6 +705,9 @@ adapter's job is to *not defeat them*: no pre-filled totals, no
 | **`flight_number` formatting varies by response shape** | measured: the pin response returned `"B6 1408"` (with a space) where the search response returned `"B61408"` | normalise (strip whitespace, uppercase) before any identity comparison; never use the raw string as identity |
 | **A pinned request changes the response shape, not just the content** | measured: `selected_flights_json` returns `selected_flights` / `baggage_prices` / `booking_options` / `price_insights` and **no** `best_flights`/`other_flights`, and the pinned entry has **no `price`** (§8.1) | parser branches on `request_kind`; the verifier must not expect a price from the pin |
 | `total_duration` in the *documented example* is incoherent | 820 minutes shown for a 90-minute flight with a 90-minute layover — while the **live** field matched its own segments in five of five samples (§12.1) | treat the doc example as illustrative (the provider says so itself); keep recomputing, so the correctness of a given response never depends on trusting it |
+| **`error` appears on an empty `Success`** | measured 2026-10-03: a filter matching nothing returns HTTP 200, `search_metadata.status: Success`, zero rows, **and** a top-level `error` string | classify on `search_metadata.status` only (§4.2, §11); never branch on `error` |
+| **`max_price` filters only `best_flights`** | measured: `max_price=1` returned 0 `best_flights` but **3** `other_flights`, so the response is not empty | an empty case must be built with `include_airlines` (a code no airline uses); a price cap is not a way to make one, and an "empty" fixture built that way measures nothing |
+| **`selected_flights_json` is an object, and a one-way pin needs `type`** | measured: the pin answers 400 "should be an object with `outbound` (and optional `return`) keys", and under the default round-trip type answers 400 "is missing the `return` flights array" | build `{"outbound": [...]}` and pin a one-way itinerary with `type=2`; the request builder owns both rules (§12.3) |
 
 ---
 
@@ -923,6 +947,23 @@ derived from it:
 }
 ```
 
+**The committed artefact** is `sdk/python/tests/fixtures/serpapi/capability_profile.json`,
+written by `sdk/python/tests/test_serpapi_live.py`; the block above is the shape, the
+file is the evidence. It carries a `citations` map giving the fixture behind every
+value and an `unresolved` list, so a `null` can never be mistaken for a `false`.
+
+**Re-measured 2026-10-03 on the Starter plan by that probe** (24 searches of 1000):
+the cache pair shares both `search_metadata.id` and `created_at` while `no_cache`
+returns a new id; the pin returns `selected_flights` with **no price** and a matching
+identity; `price_history` is 62 `[timestamp, price]` rows at exactly 86400 s;
+durations matched their own segments in **16 of 16** samples; `deep_search` returned
+the same 16 rows as standard on this route (delta **0**, against **-2** measured on
+the Free plan) so the delta is query-dependent and never a superset; two
+empty-but-successful searches were **billed** (usage +2); and the account counter was
+**six searches behind** the number the probe had issued at the read taken during the
+empty-search experiment. Only `retry_after_present` remains `null`, and only because
+P0.5 needs the limiter provoked.
+
 **Measured 2026-10-03** (Free plan, **7 searches spent** — account usage moved
 1 → 8, leaving 242 of 250). The two decisive experiments returned:
 
@@ -947,10 +988,12 @@ derived from it:
 - **Durations (P0.8):** provider totals matched their own segments in 5 of 5
   samples ⇒ the historical defect does not reproduce (§12.1).
 
-**Still open:** the 429 bodies and `Retry-After` (P0.5) and whether an
-empty-but-successful search is billable (P0.7). Both need deliberately
-quota-consuming requests, so they wait on an explicit owner go-ahead. Every other
-**[UNVERIFIED]** marker in this document is now resolved.
+**Still open:** the 429 bodies and `Retry-After` (P0.5) alone. It needs a request
+deliberately refused by the provider's limiter, which is why it waits on an explicit
+owner go-ahead and has its own second opt-in in the probe
+(`LETSFG_SERPAPI_PROBE_LIMITER=1`). Every other **[UNVERIFIED]** marker in this
+document is resolved — including the empty-result billing question, which the
+committed probe settled by measurement.
 
 Every `null` above is a contract still blocked, and a `true`/`false` must cite the
 fixture that showed it. Cost: single-digit searches, plus whatever the

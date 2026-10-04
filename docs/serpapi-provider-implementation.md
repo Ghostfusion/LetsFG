@@ -42,17 +42,19 @@ price context got its own type instead of being called a baseline.
 Design §17. The adapter's freshness, verification and completeness rules cannot be
 finished without this, so it is a **gate**, not an optimisation.
 
-**Status 2026-10-03: partly satisfied, and re-opened.** A valid SerpApi key was found on
-this machine (filed under a Serper-shaped name — see design §14), and the decisive
+**Status 2026-10-03: one probe left.** A valid SerpApi key was found on this
+machine (filed under a Serper-shaped name — see design §14), and the decisive
 experiments ran for 7 searches on the Free plan (account usage 1 → 8): cache behaviour
 (P0.2), `search_metadata` (P0.4), pin semantics (P0.3), price-context shape (P0.6),
 coverage delta and the duration re-check (P0.8), and a controlled billing sequence
 (P0.7, partially). Results and the filled capability profile are in design §17.
-**Still open, and now owed: P0.5 (429 bodies, `Retry-After`) and the billability of an
-empty-but-successful search (P0.7).** They need deliberately quota-consuming requests,
-which the Starter plan (1000/month, 0 used) makes affordable. They were cancelled for
-part of 2026-10-03 while the lane was declined and are live again with D1 resolved
-**yes**: the capability profile's `null`s are filled by them, not kept.
+**P0.1 and P0.7 landed 2026-10-03 on the Starter plan:** the live probe
+(`sdk/python/tests/test_serpapi_live.py`), its fixtures and the capability profile are
+committed, and the empty-result billing question is answered by measurement (yes —
+usage +2 for two empty successes, design §4.3). **Only P0.5 remains** — the 429 bodies
+and `Retry-After` — and it needs a deliberately refused request, so it is gated on an
+explicit owner acceptance of the quota risk and carries its own second opt-in
+(`LETSFG_SERPAPI_PROBE_LIMITER=1`).
 
 ### P0.1 A `live`-marked probe script and its capability profile `PROBE` `OWNER`
 

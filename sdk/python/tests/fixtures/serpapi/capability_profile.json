@@ -1,0 +1,52 @@
+{
+  "provider": "serpapi_google",
+  "probed_at": "2026-10-03",
+  "probe": "sdk/python/tests/test_serpapi_live.py",
+  "probe_route": {
+    "departure_id": "CDG",
+    "arrival_id": "JFK",
+    "outbound_date": "2026-12-02"
+  },
+  "account": {
+    "plan_id": "starter_v4",
+    "plan_name": "Starter Plan",
+    "searches_per_month": 1000,
+    "account_rate_limit_per_hour": 200,
+    "plan_searches_left": 976
+  },
+  "observed": {
+    "cache_detectable": true,
+    "cache_hit_same_search_id": true,
+    "provider_timestamp": "created_at / processed_at (UTC) \u2014 provider FETCH time, not upstream observation time",
+    "retry_after_present": null,
+    "selected_flights_same_itinerary": true,
+    "selected_flights_returns_price": false,
+    "price_level_values": [
+      "low"
+    ],
+    "price_history_granularity_seconds": 86400,
+    "price_history_points_observed": 62,
+    "empty_search_billable": true,
+    "coverage_delta_deep": 0,
+    "ledger_from_account_endpoint_reliable": false,
+    "duration_totals_match_own_segments": true
+  },
+  "citations": {
+    "cache_detectable": "cache_cached_1.json search_metadata.id",
+    "cache_hit_same_search_id": "cache_cached_2.json vs cache_cached_1.json id and created_at",
+    "provider_timestamp": "cache_cached_1.json search_metadata.created_at/processed_at",
+    "retry_after_present": "not probed \u2014 needs the limiter opt-in (P0.5)",
+    "selected_flights_same_itinerary": "pin_selected_flights.json vs pin_source_search.json",
+    "selected_flights_returns_price": "pin_selected_flights.json selected_flights[0].price",
+    "price_level_values": "price_context.json price_insights.price_level",
+    "price_history_granularity_seconds": "price_context.json price_insights.price_history timestamps",
+    "price_history_points_observed": "price_context.json price_insights.price_history length",
+    "empty_search_billable": "empty_search.json usage delta for two empty no_cache searches",
+    "coverage_delta_deep": "coverage_deep.json vs coverage_standard.json row counts",
+    "ledger_from_account_endpoint_reliable": "empty_search.json counter_lag_searches_at_first_read \u2014 searches issued this run minus the usage the account had counted; null when the counter agreed, because one agreeing sample does not establish reliability",
+    "duration_totals_match_own_segments": "coverage_standard.json total_duration vs segments + layovers"
+  },
+  "unresolved": [
+    "retry_after_present"
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "search_metadata": {
+    "id": "6ac1a4ad9c23128c6041f1c2",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/ES9hSZzx5p6NFPt_9Z40T9bUi4H19DSAsb3Uf-XE8MU/6ac1a4ad9c23128c6041f1c2.json",
+    "markdown_endpoint": "https://serpapi.com/searches/ES9hSZzx5p6NFPt_9Z40T9bUi4H19DSAsb3Uf-XE8MU/6ac1a4ad9c23128c6041f1c2.md",
+    "created_at": "2026-10-04 00:58:21 UTC",
+    "processed_at": "2026-10-04 00:58:21 UTC",
+    "google_flights_url": "https://www.google.com/travel/flights?hl=en&gl=us&curr=EUR&tfs=CBwQAhoiEgoyMDI2LTEyLTAyMgJaWmoHCAESA0NER3IHCAESA0pGS0ABSAFwAZgBAg&tfu=EgIIAQ",
+    "raw_html_file": "https://serpapi.com/searches/ES9hSZzx5p6NFPt_9Z40T9bUi4H19DSAsb3Uf-XE8MU/6ac1a4ad9c23128c6041f1c2.html",
+    "prettify_html_file": "https://serpapi.com/searches/ES9hSZzx5p6NFPt_9Z40T9bUi4H19DSAsb3Uf-XE8MU/6ac1a4ad9c23128c6041f1c2.prettify",
+    "total_time_taken": 8.42
+  },
+  "search_parameters": {
+    "engine": "google_flights",
+    "hl": "en",
+    "gl": "us",
+    "type": "2",
+    "departure_id": "CDG",
+    "arrival_id": "JFK",
+    "outbound_date": "2026-12-02",
+    "include_airlines": "ZZ",
+    "currency": "EUR"
+  },
+  "search_information": {
+    "flights_results_state": "Fully empty"
+  },
+  "error": "Google Flights hasn't returned any results for this query.",
+  "_probe_note": "itinerary lists truncated to 3 per list (0 rows dropped); all other fields verbatim",
+  "_probe_observed": {
+    "both_empty": true,
+    "statuses": [
+      "Success",
+      "Success"
+    ],
+    "error_field_present_on_empty_success": [
+      "Google Flights hasn't returned any results for this query.",
+      "Google Flights hasn't returned any results for this query."
+    ],
+    "row_counts": {
+      "best_flights": 0,
+      "other_flights": 0,
+      "selected_flights": 0
+    },
+    "usage_before": 20,
+    "usage_immediate": 23,
+    "usage_settled": 24,
+    "usage_delta_for_two_empty_searches": 4,
+    "searches_issued_this_run": 9,
+    "counter_lag_searches_at_first_read": 6,
+    "empty_search_billable": true
+  }
+}

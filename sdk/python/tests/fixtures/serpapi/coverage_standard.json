@@ -1,0 +1,721 @@
+{
+  "search_metadata": {
+    "id": "6ac1a4a8b24c5de11b75d8c0",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/UnD4uJm9FRM3V0qj1iGfjYbP_db0HLafJ5GvDAwh9Bk/6ac1a4a8b24c5de11b75d8c0.json",
+    "markdown_endpoint": "https://serpapi.com/searches/UnD4uJm9FRM3V0qj1iGfjYbP_db0HLafJ5GvDAwh9Bk/6ac1a4a8b24c5de11b75d8c0.md",
+    "created_at": "2026-10-04 00:58:16 UTC",
+    "processed_at": "2026-10-04 00:58:16 UTC",
+    "google_flights_url": "https://www.google.com/travel/flights?hl=en&gl=us&curr=EUR&tfs=CBwQAhoeEgoyMDI2LTEyLTAyagcIARIDQ0RHcgcIARIDSkZLQAFIAXABmAEC&tfu=EgIIAQ",
+    "raw_html_file": "https://serpapi.com/searches/UnD4uJm9FRM3V0qj1iGfjYbP_db0HLafJ5GvDAwh9Bk/6ac1a4a8b24c5de11b75d8c0.html",
+    "prettify_html_file": "https://serpapi.com/searches/UnD4uJm9FRM3V0qj1iGfjYbP_db0HLafJ5GvDAwh9Bk/6ac1a4a8b24c5de11b75d8c0.prettify",
+    "total_time_taken": 1.22
+  },
+  "search_parameters": {
+    "engine": "google_flights",
+    "hl": "en",
+    "gl": "us",
+    "type": "2",
+    "departure_id": "CDG",
+    "arrival_id": "JFK",
+    "outbound_date": "2026-12-02",
+    "currency": "EUR"
+  },
+  "best_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "A\u00e9roport de Paris-Charles de Gaulle",
+            "id": "CDG",
+            "time": "2026-12-02 11:25"
+          },
+          "arrival_airport": {
+            "name": "John F. Kennedy International Airport",
+            "id": "JFK",
+            "time": "2026-12-02 13:50"
+          },
+          "duration": 505,
+          "airplane": "Boeing 787",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 43",
+          "ticket_also_sold_by": [
+            "Iberia"
+          ],
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Wi-Fi for a fee",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 385 kg"
+          ]
+        }
+      ],
+      "total_duration": 505,
+      "carbon_emissions": {
+        "this_flight": 385000,
+        "typical_for_this_route": 370000,
+        "difference_percent": 4
+      },
+      "price": 362,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+      "extensions": [
+        "Checked baggage for a fee",
+        "Full refund for cancellations",
+        "Free change, possible fare difference"
+      ],
+      "booking_token": "WyJDalJJTUhZdFQxaHFZVFIwU3poQlMwRTVVRkZDUnkwdExTMHRMUzB0TFhscFltcHZPVUZCUVVGQlIzSkNjRXRyUzI1dVRHRkJFZ1JCUVRRekdnc0ltcG9DRUFJYUEwVlZVamdjY05lOUFnPT0iLFtbIkNERyIsIjIwMjYtMTItMDIiLCJKRksiLG51bGwsIkFBIiwiNDMiXV1d"
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "A\u00e9roport de Paris-Charles de Gaulle",
+            "id": "CDG",
+            "time": "2026-12-02 11:20"
+          },
+          "arrival_airport": {
+            "name": "John F. Kennedy International Airport",
+            "id": "JFK",
+            "time": "2026-12-02 14:10"
+          },
+          "duration": 530,
+          "airplane": "Airbus A321neo",
+          "airline": "JetBlue",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/B6.png",
+          "travel_class": "Economy",
+          "flight_number": "B6 1408",
+          "legroom": "32 in",
+          "extensions": [
+            "Above average legroom (32 in)",
+            "Free Wi-Fi",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 574 kg"
+          ]
+        }
+      ],
+      "total_duration": 530,
+      "carbon_emissions": {
+        "this_flight": 574000,
+        "typical_for_this_route": 370000,
+        "difference_percent": 55
+      },
+      "price": 363,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/B6.png",
+      "extensions": [
+        "Checked baggage for a fee",
+        "Full refund for cancellations",
+        "Free change, possible fare difference"
+      ],
+      "booking_token": "WyJDalJJTUhZdFQxaHFZVFIwU3poQlMwRTVVRkZDUnkwdExTMHRMUzB0TFhscFltcHZPVUZCUVVGQlIzSkNjRXRyUzI1dVRHRkJFZ1pDTmpFME1EZ2FDd2lLbXdJUUFob0RSVlZTT0J4dzFiNEMiLFtbIkNERyIsIjIwMjYtMTItMDIiLCJKRksiLG51bGwsIkI2IiwiMTQwOCJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "A\u00e9roport de Paris-Charles de Gaulle",
+            "id": "CDG",
+            "time": "2026-12-02 12:30"
+          },
+          "arrival_airport": {
+            "name": "John F. Kennedy International Airport",
+            "id": "JFK",
+            "time": "2026-12-02 15:05"
+          },
+          "duration": 515,
+          "airplane": "Airbus A330",
+          "airline": "Delta",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+          "travel_class": "Economy",
+          "flight_number": "DL 263",
+          "ticket_also_sold_by": [
+            "Air France",
+            "Virgin Atlantic"
+          ],
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Free Wi-Fi",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 372 kg"
+          ],
+          "often_delayed_by_over_30_min": true
+        }
+      ],
+      "total_duration": 515,
+      "carbon_emissions": {
+        "this_flight": 373000,
+        "typical_for_this_route": 370000,
+        "difference_percent": 1
+      },
+      "price": 439,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+      "extensions": [
+        "Checked baggage for a fee",
+        "Full refund for cancellations",
+        "Free change, possible fare difference"
+      ],
+      "booking_token": "WyJDalJJTUhZdFQxaHFZVFIwU3poQlMwRTVVRkZDUnkwdExTMHRMUzB0TFhscFltcHZPVUZCUVVGQlIzSkNjRXRyUzI1dVRHRkJFZ1ZFVERJMk14b0xDSzdXQWhBQ0dnTkZWVkk0SEhDeWdRTT0iLFtbIkNERyIsIjIwMjYtMTItMDIiLCJKRksiLG51bGwsIkRMIiwiMjYzIl1dXQ=="
+    }
+  ],
+  "other_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "A\u00e9roport de Paris-Charles de Gaulle",
+            "id": "CDG",
+            "time": "2026-12-02 11:35"
+          },
+          "arrival_airport": {
+            "name": "Heathrow Airport",
+            "id": "LHR",
+            "time": "2026-12-02 12:00"
+          },
+          "duration": 85,
+          "airplane": "Airbus A321neo",
+          "airline": "British Airways",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/BA.png",
+          "travel_class": "Economy",
+          "flight_number": "BA 305",
+          "ticket_also_sold_by": [
+            "American"
+          ],
+          "legroom": "29 in",
+          "extensions": [
+            "Below average legroom (29 in)",
+            "Wi-Fi for a fee",
+            "In-seat USB outlet",
+            "Carbon emissions estimate: 42 kg"
+          ]
+        },
+        {
+          "departure_airport": {
+            "name": "Heathrow Airport",
+            "id": "LHR",
+            "time": "2026-12-02 15:35"
+          },
+          "arrival_airport": {
+            "name": "John F. Kennedy International Airport",
+            "id": "JFK",
+            "time": "2026-12-02 18:40"
+          },
+          "duration": 485,
+          "airplane": "Boeing 777",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 107",
+          "ticket_also_sold_by": [
+            "Finnair",
+            "British Airways"
+          ],
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Wi-Fi for a fee",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 363 kg"
+          ]
+        }
+      ],
+      "layovers": [
+        {
+          "duration": 215,
+          "name": "Heathrow Airport",
+          "id": "LHR"
+        }
+      ],
+      "total_duration": 785,
+      "carbon_emissions": {
+        "this_flight": 406000,
+        "typical_for_this_route": 370000,
+        "difference_percent": 10
+      },
+      "price": 348,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/multi.png",
+      "extensions": [
+        "Checked baggage for a fee",
+        "Fare non-refundable, taxes may be refundable",
+        "Ticket changes for a fee"
+      ],
+      "booking_token": "WyJDalJJTUhZdFQxaHFZVFIwU3poQlMwRTVVRkZDUnkwdExTMHRMUzB0TFhscFltcHZPVUZCUVVGQlIzSkNjRXRyUzI1dVRHRkJFZ3RDUVRNd05YeEJRVEV3TnhvTENKT1BBaEFDR2dORlZWSTRISENlc1FJPSIsW1siQ0RHIiwiMjAyNi0xMi0wMiIsIkxIUiIsbnVsbCwiQkEiLCIzMDUiXSxbIkxIUiIsIjIwMjYtMTItMDIiLCJKRksiLG51bGwsIkFBIiwiMTA3Il1dXQ=="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "A\u00e9roport de Paris-Charles de Gaulle",
+            "id": "CDG",
+            "time": "2026-12-02 15:00"
+          },
+          "arrival_airport": {
+            "name": "Heathrow Airport",
+            "id": "LHR",
+            "time": "2026-12-02 15:25"
+          },
+          "duration": 85,
+          "airplane": "Airbus A320neo",
+          "airline": "British Airways",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/BA.png",
+          "travel_class": "Economy",
+          "flight_number": "BA 309",
+          "ticket_also_sold_by": [
+            "American"
+          ],
+          "legroom": "29 in",
+          "extensions": [
+            "Below average legroom (29 in)",
+            "Wi-Fi for a fee",
+            "In-seat USB outlet",
+            "Carbon emissions estimate: 46 kg"
+          ]
+        },
+        {
+          "departure_airport": {
+            "name": "Heathrow Airport",
+            "id": "LHR",
+            "time": "2026-12-02 16:40"
+          },
+          "arrival_airport": {
+            "name": "John F. Kennedy International Airport",
+            "id": "JFK",
+            "time": "2026-12-02 19:50"
+          },
+          "duration": 490,
+          "airplane": "Boeing 787-10",
+          "airline": "British Airways",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/BA.png",
+          "travel_class": "Economy",
+          "flight_number": "BA 113",
+          "ticket_also_sold_by": [
+            "Finnair",
+            "American",
+            "Iberia"
+          ],
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Wi-Fi for a fee",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 235 kg"
+          ]
+        }
+      ],
+      "layovers": [
+        {
+          "duration": 75,
+          "name": "Heathrow Airport",
+          "id": "LHR"
+        }
+      ],
+      "total_duration": 650,
+      "carbon_emissions": {
+        "this_flight": 283000,
+        "typical_for_this_route": 370000,
+        "difference_percent": -24
+      },
+      "price": 348,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/BA.png",
+      "extensions": [
+        "Checked baggage for a fee",
+        "Fare non-refundable, taxes may be refundable",
+        "Ticket changes for a fee"
+      ],
+      "booking_token": "WyJDalJJTUhZdFQxaHFZVFIwU3poQlMwRTVVRkZDUnkwdExTMHRMUzB0TFhscFltcHZPVUZCUVVGQlIzSkNjRXRyUzI1dVRHRkJFZ3RDUVRNd09YeENRVEV4TXhvTENKT1BBaEFDR2dORlZWSTRISENlc1FJPSIsW1siQ0RHIiwiMjAyNi0xMi0wMiIsIkxIUiIsbnVsbCwiQkEiLCIzMDkiXSxbIkxIUiIsIjIwMjYtMTItMDIiLCJKRksiLG51bGwsIkJBIiwiMTEzIl1dXQ=="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "A\u00e9roport de Paris-Charles de Gaulle",
+            "id": "CDG",
+            "time": "2026-12-02 15:00"
+          },
+          "arrival_airport": {
+            "name": "Heathrow Airport",
+            "id": "LHR",
+            "time": "2026-12-02 15:25"
+          },
+          "duration": 85,
+          "airplane": "Airbus A320neo",
+          "airline": "British Airways",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/BA.png",
+          "travel_class": "Economy",
+          "flight_number": "BA 309",
+          "ticket_also_sold_by": [
+            "American"
+          ],
+          "legroom": "29 in",
+          "extensions": [
+            "Below average legroom (29 in)",
+            "Wi-Fi for a fee",
+            "In-seat USB outlet",
+            "Carbon emissions estimate: 46 kg"
+          ]
+        },
+        {
+          "departure_airport": {
+            "name": "Heathrow Airport",
+            "id": "LHR",
+            "time": "2026-12-02 17:00"
+          },
+          "arrival_airport": {
+            "name": "John F. Kennedy International Airport",
+            "id": "JFK",
+            "time": "2026-12-02 20:05"
+          },
+          "duration": 485,
+          "airplane": "Boeing 777",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 141",
+          "ticket_also_sold_by": [
+            "Finnair",
+            "British Airways"
+          ],
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Wi-Fi for a fee",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 348 kg"
+          ]
+        }
+      ],
+      "layovers": [
+        {
+          "duration": 95,
+          "name": "Heathrow Airport",
+          "id": "LHR"
+        }
+      ],
+      "total_duration": 665,
+      "carbon_emissions": {
+        "this_flight": 396000,
+        "typical_for_this_route": 370000,
+        "difference_percent": 7
+      },
+      "price": 348,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/multi.png",
+      "extensions": [
+        "Checked baggage for a fee",
+        "Fare non-refundable, taxes may be refundable",
+        "Ticket changes for a fee"
+      ],
+      "booking_token": "WyJDalJJTUhZdFQxaHFZVFIwU3poQlMwRTVVRkZDUnkwdExTMHRMUzB0TFhscFltcHZPVUZCUVVGQlIzSkNjRXRyUzI1dVRHRkJFZ3RDUVRNd09YeEJRVEUwTVJvTENKT1BBaEFDR2dORlZWSTRISENlc1FJPSIsW1siQ0RHIiwiMjAyNi0xMi0wMiIsIkxIUiIsbnVsbCwiQkEiLCIzMDkiXSxbIkxIUiIsIjIwMjYtMTItMDIiLCJKRksiLG51bGwsIkFBIiwiMTQxIl1dXQ=="
+    }
+  ],
+  "price_insights": {
+    "lowest_price": 348,
+    "price_level": "low",
+    "typical_price_range": [
+      350,
+      710
+    ],
+    "price_history": [
+      [
+        1785794400,
+        324
+      ],
+      [
+        1785880800,
+        324
+      ],
+      [
+        1785967200,
+        324
+      ],
+      [
+        1786053600,
+        324
+      ],
+      [
+        1786140000,
+        324
+      ],
+      [
+        1786226400,
+        324
+      ],
+      [
+        1786312800,
+        324
+      ],
+      [
+        1786399200,
+        324
+      ],
+      [
+        1786485600,
+        324
+      ],
+      [
+        1786572000,
+        324
+      ],
+      [
+        1786658400,
+        324
+      ],
+      [
+        1786744800,
+        324
+      ],
+      [
+        1786831200,
+        324
+      ],
+      [
+        1786917600,
+        324
+      ],
+      [
+        1787004000,
+        334
+      ],
+      [
+        1787090400,
+        334
+      ],
+      [
+        1787176800,
+        334
+      ],
+      [
+        1787263200,
+        334
+      ],
+      [
+        1787349600,
+        333
+      ],
+      [
+        1787436000,
+        333
+      ],
+      [
+        1787522400,
+        333
+      ],
+      [
+        1787608800,
+        333
+      ],
+      [
+        1787695200,
+        333
+      ],
+      [
+        1787781600,
+        333
+      ],
+      [
+        1787868000,
+        333
+      ],
+      [
+        1787954400,
+        333
+      ],
+      [
+        1788040800,
+        333
+      ],
+      [
+        1788127200,
+        333
+      ],
+      [
+        1788213600,
+        333
+      ],
+      [
+        1788300000,
+        336
+      ],
+      [
+        1788386400,
+        336
+      ],
+      [
+        1788472800,
+        336
+      ],
+      [
+        1788559200,
+        336
+      ],
+      [
+        1788645600,
+        336
+      ],
+      [
+        1788732000,
+        336
+      ],
+      [
+        1788818400,
+        336
+      ],
+      [
+        1788904800,
+        336
+      ],
+      [
+        1788991200,
+        336
+      ],
+      [
+        1789077600,
+        336
+      ],
+      [
+        1789164000,
+        336
+      ],
+      [
+        1789250400,
+        336
+      ],
+      [
+        1789336800,
+        336
+      ],
+      [
+        1789423200,
+        336
+      ],
+      [
+        1789509600,
+        336
+      ],
+      [
+        1789596000,
+        336
+      ],
+      [
+        1789682400,
+        336
+      ],
+      [
+        1789768800,
+        336
+      ],
+      [
+        1789855200,
+        336
+      ],
+      [
+        1789941600,
+        336
+      ],
+      [
+        1790028000,
+        336
+      ],
+      [
+        1790114400,
+        336
+      ],
+      [
+        1790200800,
+        336
+      ],
+      [
+        1790287200,
+        337
+      ],
+      [
+        1790373600,
+        337
+      ],
+      [
+        1790460000,
+        337
+      ],
+      [
+        1790546400,
+        337
+      ],
+      [
+        1790632800,
+        347
+      ],
+      [
+        1790719200,
+        347
+      ],
+      [
+        1790805600,
+        347
+      ],
+      [
+        1790892000,
+        347
+      ],
+      [
+        1790978400,
+        347
+      ],
+      [
+        1791064800,
+        348
+      ]
+    ]
+  },
+  "airports": [
+    {
+      "departure": [
+        {
+          "airport": {
+            "id": "CDG",
+            "name": "A\u00e9roport de Paris-Charles de Gaulle"
+          },
+          "city": "Paris",
+          "country": "France",
+          "country_code": "FR",
+          "image": "https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcQGx8ii2KbSDdbdzfKye5oDN2bwBA6audqI7XUEf2iMRZezpn_ZbQe1ZIuvUSH-8XOMe958umDwSsAF1w",
+          "thumbnail": "https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcSyQJ-woNs0iO22mPSkmRUM5gcsTbbYeypQ6BBTeFxXr90mqTxZl57Fdq2CDuLn4w7cKZ8TT9_zZhOpF57rIpA7yWKQnqKvkKIf9Y-qJDo"
+        }
+      ],
+      "arrival": [
+        {
+          "airport": {
+            "id": "JFK",
+            "name": "John F. Kennedy International Airport"
+          },
+          "city": "New York",
+          "country": "United States",
+          "country_code": "US",
+          "image": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRa1dwH1NZQk4dsbPiyA9Vrq2RX75jXSZ-OkHn7NkLHl-11HercqDXoZ4p2cDxJkH6vca2degawrCzHEQ",
+          "thumbnail": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcQEaUa9NsdPWGpAUGkTApkZDT_4M6_6V8wTcC0v1b1wJAJX-BuMSiipXbsoznGgcI1xLOc5QiTcR_xovexgjdOz0gqQe0tRQ9h0bUkZ07Q"
+        }
+      ]
+    }
+  ],
+  "_probe_note": "itinerary lists truncated to 3 per list (10 rows dropped); all other fields verbatim",
+  "_probe_observed": {
+    "coverage_delta_deep": 0,
+    "standard_rows": 16,
+    "deep_rows": 16,
+    "duration_totals_match_own_segments": true,
+    "duration_samples": 16,
+    "duration_matches": 16
+  }
+}
