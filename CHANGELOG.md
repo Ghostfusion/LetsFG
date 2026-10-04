@@ -57,6 +57,13 @@ a heading carries:
 
 ### Fixed
 
+- Python + JS: three error paths still dropped the documented `error_code` —
+  Python's free-lane `BearerTokenError` had no such field at all, and both
+  `register` implementations raised without inferring one. `BearerTokenError`
+  now carries `AUTH_INVALID`/`business` (without subclassing `LetsFGError`, so
+  the connectors layer stays free of the Developer-API client), and both
+  `register` handlers reuse the same status → code inference the main HTTP seam
+  uses, keeping a code the server sent over the inferred one. (646bd61)
 - Python: `AuthenticationError` left `error_code` empty on the paths that never
   saw an HTTP response — `_require_api_key`, the first one an agent hits — so a
   caller branching on the documented field read `""`. It now defaults to
