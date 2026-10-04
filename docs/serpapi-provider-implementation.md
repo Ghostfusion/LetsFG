@@ -166,6 +166,16 @@ coverage mode; a verification result cannot be represented as a bare `FlightOffe
 **Why:** these are precisely the fields review #1 found being over-claimed in prose;
 types make the over-claim require a deliberate act.
 
+**Implemented 2026-10-03.** `sdk/python/letsfg/connectors/provider_contract.py` — pure,
+no I/O, no network — with guards in `sdk/python/tests/test_provider_contract.py`
+(18 cases, Tier-1). Both acceptance clauses hold, and the freeze additionally makes
+unreachable by construction: `observed_at_basis="provider"` without a provider-stamped
+time; `"provider_fetch"` on a cached read; a cached read claiming `live` freshness;
+`verified` from any request kind but `verify`; `confirmed_empty` under
+`coverage_mode="unknown"` or with rows present; an alert from a cached, unknown-coverage
+or `indicative` observation; any ordering or ranking operation on
+`ProviderPriceContext`; and a ledger event the §10 table does not define.
+
 ### P1.2 The duration invariant `CODE`
 
 **Change:** a regression test that a multi-stop fixture whose provider `total_duration`
