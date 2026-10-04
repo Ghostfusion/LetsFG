@@ -269,6 +269,17 @@ registry does not import the adapter, and `available_providers` is empty without
 flag). The declared operations are exactly §13's five,
 `capabilities.booking_options` is false and the method does not exist.
 
+**Verified live 2026-10-03, not only against replayed fixtures** (4 requests,
+2 billable — account usage 24 → 27): one `CDG→JFK` search returned **16** offers,
+the first EUR 362 `AA43` with a **recomputed** total of 30,300 s (the provider's own
+`total_duration` from the same response was 505 minutes, so the mapping is computing
+rather than copying); a search issued *without* `no_cache` came back on the same
+archive handle and was refused as fresh (`cache_mode: cached`,
+`observed_at_basis: client_receipt`, `may_alert_or_verify: false`); repeating it
+billed **nothing**; and `discover` returned 30 destination candidates at
+`price_status: indicative` with zero offers. The ledger closed at
+4 requests / 2 searches / 2 billable, which is §10's table applied to a real run.
+
 **Files:** `sdk/python/letsfg/connectors/serpapi_google.py`; a provider registry
 that is empty without `SERPAPI_KEY`.
 
