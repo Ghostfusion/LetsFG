@@ -253,6 +253,14 @@ of a documented pair is edited alone.
 
 ### P2.1 Module and provider registry `CODE` `OWNER`
 
+**Implemented 2026-10-03** together with P2.2/P2.3/P2.4:
+`sdk/python/letsfg/connectors/serpapi_google.py` (the adapter, standard-library HTTP
+only) and `sdk/python/letsfg/connectors/provider_registry.py` (lazy: importing the
+registry does not import the adapter, and `available_providers` is empty without
+`SERPAPI_KEY` — asserted in a subprocess so the check is about loading, not about a
+flag). The declared operations are exactly §13's five,
+`capabilities.booking_options` is false and the method does not exist.
+
 **Files:** `sdk/python/letsfg/connectors/serpapi_google.py`; a provider registry
 that is empty without `SERPAPI_KEY`.
 

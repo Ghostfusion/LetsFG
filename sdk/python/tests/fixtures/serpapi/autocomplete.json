@@ -1,0 +1,110 @@
+{
+  "search_metadata": {
+    "id": "6ac1a5d9079a2bf1fa76f5ac",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/ZuPcZtE8fzWu015a0QZoxysG84PKUMTFhIywQuqJ9hU/6ac1a5d9079a2bf1fa76f5ac.json",
+    "markdown_endpoint": "https://serpapi.com/searches/ZuPcZtE8fzWu015a0QZoxysG84PKUMTFhIywQuqJ9hU/6ac1a5d9079a2bf1fa76f5ac.md",
+    "created_at": "2026-10-04 01:03:21 UTC",
+    "processed_at": "2026-10-04 01:03:21 UTC",
+    "google_flights_autocomplete_url": "https://www.google.com/travel/flights?hl=en&gl=us",
+    "raw_html_file": "https://serpapi.com/searches/ZuPcZtE8fzWu015a0QZoxysG84PKUMTFhIywQuqJ9hU/6ac1a5d9079a2bf1fa76f5ac.html",
+    "prettify_html_file": "https://serpapi.com/searches/ZuPcZtE8fzWu015a0QZoxysG84PKUMTFhIywQuqJ9hU/6ac1a5d9079a2bf1fa76f5ac.prettify",
+    "total_time_taken": 0.33
+  },
+  "search_parameters": {
+    "engine": "google_flights_autocomplete",
+    "q": "Barcelona",
+    "hl": "en",
+    "gl": "us"
+  },
+  "suggestions": [
+    {
+      "position": 1,
+      "name": "Barcelona, Spain",
+      "type": "city",
+      "description": "City in Spain",
+      "id": "/m/01f62",
+      "airports": [
+        {
+          "name": "Josep Tarradellas Barcelona-El Prat Airport",
+          "id": "BCN",
+          "city": "Barcelona",
+          "city_id": "/m/01f62",
+          "distance": "7 mi"
+        },
+        {
+          "name": "Barcelona-Sants",
+          "id": "YJB",
+          "city": "Barcelona",
+          "city_id": "/m/01f62",
+          "distance": "1 mi"
+        }
+      ]
+    },
+    {
+      "position": 2,
+      "name": "Barcelona, Spain",
+      "type": "region",
+      "id": "/m/0123_x"
+    },
+    {
+      "position": 3,
+      "name": "Barcelona, Spain",
+      "type": "region",
+      "description": "Production company",
+      "id": "/g/1ywqfcz8w"
+    },
+    {
+      "position": 4,
+      "name": "Barcelona, Venezuela",
+      "type": "city",
+      "description": "City in Venezuela",
+      "id": "/m/0596ss",
+      "airports": [
+        {
+          "name": "General Jose Antonio Anzoategui International Airport",
+          "id": "BLA",
+          "city": "Barcelona",
+          "city_id": "/m/0596ss",
+          "distance": "2 mi"
+        }
+      ]
+    },
+    {
+      "position": 5,
+      "name": "Barcelona, Philippines",
+      "type": "city",
+      "description": "Municipality in Luzon, Philippines",
+      "id": "/m/06m085",
+      "airports": [
+        {
+          "name": "Bicol International Airport",
+          "id": "DRP",
+          "city": "Daraga",
+          "city_id": "/m/06jjl0",
+          "distance": "35 mi"
+        }
+      ]
+    }
+  ],
+  "_probe_observed": {
+    "container_key": "suggestions",
+    "row_keys": [
+      "airports",
+      "description",
+      "id",
+      "name",
+      "position",
+      "type"
+    ],
+    "airport_row_keys": [
+      "city",
+      "city_id",
+      "distance",
+      "id",
+      "name"
+    ],
+    "city_id_shape": "kgmid (/m/\u2026)",
+    "airport_id_shape": "IATA"
+  }
+}

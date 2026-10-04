@@ -1,0 +1,32 @@
+{
+  "search_metadata": {
+    "id": "6ac1a5fc4a616b9bd0639241",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/WPE62j69oNfZ5iC7IR-WFjSV2QJ3HWeN2GNQKW-Wd1o/6ac1a5fc4a616b9bd0639241.json",
+    "markdown_endpoint": "https://serpapi.com/searches/WPE62j69oNfZ5iC7IR-WFjSV2QJ3HWeN2GNQKW-Wd1o/6ac1a5fc4a616b9bd0639241.md",
+    "created_at": "2026-10-04 01:03:56 UTC",
+    "processed_at": "2026-10-04 01:03:56 UTC",
+    "google_travel_explore_url": "https://www.google.com/travel/explore?hl=en&gl=us&curr=EUR&tfs=CBwQAxoXagcIARIDQ0RHcgwIBBIIL20vMDFmNjIaF2oMCAQSCC9tLzAxZjYycgcIARIDQ0RHQAFIAXACggECEAKYAQE",
+    "raw_html_file": "https://serpapi.com/searches/WPE62j69oNfZ5iC7IR-WFjSV2QJ3HWeN2GNQKW-Wd1o/6ac1a5fc4a616b9bd0639241.html",
+    "prettify_html_file": "https://serpapi.com/searches/WPE62j69oNfZ5iC7IR-WFjSV2QJ3HWeN2GNQKW-Wd1o/6ac1a5fc4a616b9bd0639241.prettify",
+    "total_time_taken": 0.97
+  },
+  "search_parameters": {
+    "engine": "google_travel_explore",
+    "hl": "en",
+    "gl": "us",
+    "departure_id": "CDG",
+    "arrival_area_id": "/m/01f62",
+    "currency": "EUR"
+  },
+  "search_information": {
+    "organic_results_state": "Fully empty"
+  },
+  "error": "Empty results for departure_id: \"CDG\" and arrival_area_id: \"/m/01f62\".",
+  "_probe_observed": {
+    "http_status": 200,
+    "containers": [],
+    "row_keys": {},
+    "arrival_area_id": "/m/01f62"
+  }
+}

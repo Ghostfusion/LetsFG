@@ -80,8 +80,14 @@ authoritative search → observation — and deals/explore can only feed the fir
 step, as a richer form of what `discover` already does.
 
 A fifth, weaker benefit: `google_travel_explore` generates destination pools from
-interests (`beach`, `skiing`, `outdoors`, …) inside a six-month window, which the
-`discover` operation cannot express at all.
+interests inside a six-month window, which the `discover` operation cannot express at
+all — **but not with the vocabulary this document first guessed.** Measured 2026-10-03:
+`interest=beach` answers `400 Unsupported "beach" for interest.`, so the adapter encodes
+**no** interest value, and none should be added until one is measured working. The same
+probe found `arrival_area_id` is a kgmid (`/m…`), not an index, and that with a valid
+area but no matching service the engine answers `200` with an `error` string and **no
+result container at all** — so explore's populated shape remains unmeasured and nothing
+is inferred from its absence (§12.2).
 
 ---
 
@@ -220,6 +226,24 @@ points the adapter depends on:
 }
 ```
 
+- **`suggestions[]` (autocomplete), measured 2026-10-03.** Each suggestion carries a
+  `type`, a `name` and a kgmid `id` (`/m/…`), plus an `airports[]` array whose entries
+  carry the IATA `id`. So a city suggestion yields one location candidate per airport,
+  each carrying the city's kgmid as provider-local provenance — the join key, never
+  identity (§6).
+- **`deals[]` (deals engine), measured 2026-10-03**, matching the documented field set:
+  `destination_id` (kgmid), `name`, `country`, `price`, `average_price`,
+  `discount_percentage`, `flight_link`, `serpapi_flight_link`, `thumbnail`,
+  `outbound_date`, `return_date`, `departure_airport_code`, `arrival_airport_code`,
+  `flight_duration`, `stops`, `airline`, `airline_code`, `description`, `highlights`.
+  There is **no itinerary**, so a deal is a destination candidate with an indicative
+  price, never an offer (§5).
+- **`google_travel_explore`'s populated shape is still unmeasured.** With
+  `arrival_area_id=/m/01f62` it answered `200` with
+  `error: "Empty results for departure_id: "CDG" and arrival_area_id: "/m/01f62"."` and
+  no result container; `interest=beach` was refused outright. The adapter therefore maps
+  nothing from an explore response and reports `result_state: unknown` rather than
+  reading an absence it cannot interpret.
 - `typical_price_range` — two integers, the low and high bound.
 - `price_history` — array of `[unix_timestamp, price]` pairs. **Measured
   granularity is daily** (consecutive steps exactly `86400` s), and the sampled
@@ -708,6 +732,9 @@ adapter's job is to *not defeat them*: no pre-filled totals, no
 | **`error` appears on an empty `Success`** | measured 2026-10-03: a filter matching nothing returns HTTP 200, `search_metadata.status: Success`, zero rows, **and** a top-level `error` string | classify on `search_metadata.status` only (§4.2, §11); never branch on `error` |
 | **`max_price` filters only `best_flights`** | measured: `max_price=1` returned 0 `best_flights` but **3** `other_flights`, so the response is not empty | an empty case must be built with `include_airlines` (a code no airline uses); a price cap is not a way to make one, and an "empty" fixture built that way measures nothing |
 | **`selected_flights_json` is an object, and a one-way pin needs `type`** | measured: the pin answers 400 "should be an object with `outbound` (and optional `return`) keys", and under the default round-trip type answers 400 "is missing the `return` flights array" | build `{"outbound": [...]}` and pin a one-way itinerary with `type=2`; the request builder owns both rules (§12.3) |
+| **`arrival_area_id` is a kgmid, not an index** | measured 2026-10-03: `arrival_area_id="1"` answers 400 "should start with `/m` or `/g`" | pass a kgmid from autocomplete; never a numeric area code |
+| **`interest` has a vocabulary this document guessed wrong** | measured: `interest=beach` answers 400 "Unsupported `beach` for interest." | encode no interest value until one is measured working — the adapter passes the parameter through and lets the failure contract classify the refusal |
+| **An explore answer with no results carries no container at all** | measured: `200` + `error: "Empty results for …"` and no list key | never read explore's absence as "unserved"; its populated shape is unmeasured, so the state is `unknown`, not `confirmed_empty` |
 
 ---
 
@@ -987,6 +1014,15 @@ P0.5 needs the limiter provoked.
   at ≈5.5× the latency ⇒ not a superset (§12.2).
 - **Durations (P0.8):** provider totals matched their own segments in 5 of 5
   samples ⇒ the historical defect does not reproduce (§12.1).
+
+**Additional shapes measured 2026-10-03, closing gaps the original probe list did not
+name** (4 searches): `google_flights_autocomplete` (`suggestions[]` → `airports[]`, §4.4)
+and `google_flights_deals` (`deals[]`, §4.4) are now verified and their fixtures are
+committed alongside the rest. `google_travel_explore` was **not** captured: its
+populated container is still unmeasured, `interest=beach` was refused, `arrival_area_id`
+turned out to be a kgmid, and an area with no matching service answers `200` with an
+`error` string and no container at all. Those three refusals are recorded as traps
+(§12.2) because each would otherwise be rediscovered as a "bug" in our own parser.
 
 **Still open:** the 429 bodies and `Retry-After` (P0.5) alone. It needs a request
 deliberately refused by the provider's limiter, which is why it waits on an explicit
