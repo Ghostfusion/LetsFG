@@ -774,6 +774,39 @@ describe('guidance — the guide carries the rules, tools/list carries the contr
       `the ${tools.length} descriptions total ${total} bytes (budget ${DESCRIPTION_BUDGET})`);
   });
 
+  it('every enveloped tool returns a legal verdict with NO credential', async () => {
+    // `spawnServer` defaults LETSFG_BEARER_TOKEN to 'test-token', so every
+    // credential-missing path was unreachable from this suite. A real MCP client
+    // with no credential then received a bare `{error}` from search_flights —
+    // no status, nothing to branch on — which is the failure this pass exists to
+    // catch. Refusals this server makes itself carry the envelope too.
+    for (const [name, args] of ENVELOPED_TOOLS) {
+      const { payload } = await callTool(name, args, { LETSFG_BEARER_TOKEN: '', LETSFG_API_KEY: '' });
+      assert.ok(payload, `${name}: expected a JSON payload`);
+      const verdict = payload?.envelope_status ?? payload?.status;
+      assert.equal(
+        STATUSES[String(verdict)],
+        true,
+        `${name}: with no credential the verdict was ${JSON.stringify(verdict)} — a bare {error} is not branchable`,
+      );
+      assert.equal(
+        COMPLETENESS[String(payload?.completeness)],
+        true,
+        `${name}: with no credential completeness was ${JSON.stringify(payload?.completeness)}`,
+      );
+      // `fix_hint_code` is required of a *refusal*, not of an outcome. Against the
+      // fake API a tool can still answer `ok` with no credential (the fake answers
+      // 200 to everything), so this asserts the shape of the contract, not the
+      // real lane's auth behaviour — that is what the live probe is for.
+      if (['auth_required', 'rate_limited', 'timeout', 'failed'].includes(String(verdict))) {
+        assert.ok(
+          typeof payload?.fix_hint_code === 'string' && payload.fix_hint_code.length > 0,
+          `${name}: a refusal must name the fix, saw fix_hint_code=${JSON.stringify(payload?.fix_hint_code)}`,
+        );
+      }
+    }
+  });
+
   it('marks the result block as assistant-facing, not user prose', async () => {
     // The block is the JSON payload the model acts on. Annotating the audience
     // keeps a client from rendering it verbatim to the traveller, which matters

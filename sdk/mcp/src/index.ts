@@ -82,6 +82,35 @@ function withListEnvelope(result: Record<string, unknown>, listKeys: string[]): 
   return withEnvelope(result, envelopeForData(firstListLength(result, listKeys)));
 }
 
+/**
+ * A refusal this server makes itself — a missing argument, an unsupported
+ * combination, a missing credential — enveloped like any other outcome.
+ *
+ * These paths never reach the API. They are still outcomes an agent must branch
+ * on: without the envelope the caller sees a bare `{error}` and cannot tell a
+ * validation refusal from a transport failure, which is the whole reason
+ * `fix_hint_code` exists. Found by running this server inside a real MCP client
+ * with no credential — the test harness defaults a token, so every one of these
+ * paths was unreachable from the suite.
+ *
+ * It uses the un-stamped `withEnvelopeBase` on purpose: `observedNow()` claims
+ * `client_receipt` and `freshness: live`, and on these paths **nothing was
+ * received** — no request left the process. Stamping them would assert a receipt
+ * that did not happen, which is the same class of overclaim as reporting an
+ * empty result for a search that never ran.
+ */
+function withRefusal(
+  payload: Record<string, unknown>,
+  detail: string,
+  statusCode = 422,
+): string {
+  return JSON.stringify(
+    withEnvelopeBase(payload, envelopeForError({ status_code: statusCode, detail })),
+    null,
+    2,
+  );
+}
+
 // ── Config ──────────────────────────────────────────────────────────────
 
 const BASE_URL = (process.env.LETSFG_BASE_URL || 'https://letsfg.co').replace(/\/$/, '');
@@ -894,9 +923,11 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
   switch (name) {
     case 'search_flights': {
       if (!BEARER_TOKEN && !API_KEY) {
-        return JSON.stringify({
-          error: 'Authentication required. Set LETSFG_BEARER_TOKEN (from `letsfg auth`) or LETSFG_API_KEY.',
-        });
+        return withRefusal(
+          { error: 'Authentication required. Set LETSFG_BEARER_TOKEN (from `letsfg auth`) or LETSFG_API_KEY.' },
+          'Authentication required.',
+          401,
+        );
       }
 
       const params: Record<string, unknown> = {
@@ -1048,13 +1079,13 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
         // of several would hand back a confirmation for a trip nobody asked for,
         // so refuse instead of truncating.
         if (passengers.length > 1) {
-          return JSON.stringify({
+          return withRefusal({
             error: 'multi_passenger_unsupported',
             detail:
               `Booking supports one passenger per call and ${passengers.length} were supplied. ` +
               'Nothing was booked. Book each passenger separately, or send the user to the ' +
               'booking_url from a single-passenger call.',
-          }, null, 2);
+          }, 'multi_passenger_unsupported');
         }
         const body: Record<string, unknown> = {
           search_id: args.search_id,
@@ -1086,10 +1117,10 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       // charge. The hosted MCP has always exposed this; the stdio package did not.
       const ref = String(args.booking_ref || '').trim();
       if (!ref) {
-        return JSON.stringify({
+        return withRefusal({
           error: 'booking_ref_required',
           detail: 'Pass the booking_ref that book_flight returned.',
-        }, null, 2);
+        }, 'booking_ref_required');
       }
       // The two lanes report a booking differently: PFS hands back a booking_ref
       // polled at /api/agent-book/status; the Developer API a booking_id polled at
@@ -1132,32 +1163,32 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
       const ref = String(args.booking_ref || '').trim();
       const kind = String(args.kind || '').trim().toLowerCase();
       if (!ref || (kind !== 'seat' && kind !== 'extra')) {
-        return JSON.stringify({
+        return withRefusal({
           error: true,
           detail: "booking_ref and kind ('seat' or 'extra') are required.",
-        }, null, 2);
+        }, 'booking_ref and kind are required');
       }
       // The round is not defaulted. It says WHICH question is being answered, and a
       // return trip pauses twice - guessing it is how the wrong leg gets seated.
       if (typeof args.round !== 'number') {
-        return JSON.stringify({
+        return withRefusal({
           error: true,
           detail:
             'round is required - it is the number get_flight_booking gave you in ' +
             'awaiting_choice.round, and it says WHICH question you are answering.',
-        }, null, 2);
+        }, 'round is required');
       }
       const payload: Record<string, unknown> = { intent: ref, round: args.round };
       if (args.skip === true) {
         payload.skip = true;
       } else if (kind === 'seat') {
         if (!Array.isArray(args.seats) || args.seats.length === 0) {
-          return JSON.stringify({
+          return withRefusal({
             error: true,
             detail:
               'seats is required unless skip is true. Each entry names a designator from the ' +
               'seat_map you were shown, e.g. [{ "d": "12A" }].',
-          }, null, 2);
+          }, 'seats is required unless skip is true');
         }
         payload.seats = args.seats;
       } else {
@@ -1225,12 +1256,12 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
         // An agent built against the retired deposit schema sends expected_balance
         // and no expected_cost. Say what to send instead of forwarding a body the
         // API can only answer with a 422.
-        return JSON.stringify({
+        return withRefusal({
           error: true,
           message: 'book_hotel needs expected_cost: copy the chosen offer\'s expected_cost, currency and ' +
             'fx_rate from search_hotels. expected_balance belonged to the reservation-fee process retired on ' +
             '2026-09-11 and is not sent. Nothing was booked or held.',
-        }, null, 2);
+        }, 'book_hotel needs expected_cost');
       }
       const body: Record<string, unknown> = {
         session_id: args.session_id,
