@@ -206,8 +206,23 @@ class LetsFGError(Exception):
 
 
 class AuthenticationError(LetsFGError):
-    """API key is missing or invalid."""
-    pass
+    """API key is missing or invalid.
+
+    Defaults to `AUTH_INVALID`, so the documented guarantee that every error
+    carries a machine-readable `error_code` holds on the paths that never saw an
+    HTTP response either — `_require_api_key` raises this with no status code and
+    used to leave `error_code` empty. The HTTP seam passes its code explicitly,
+    which still wins. The JS SDK's `AuthenticationError` behaves the same way.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 0,
+        response: dict | None = None,
+        error_code: str = ErrorCode.AUTH_INVALID,
+    ):
+        super().__init__(message, status_code, response, error_code)
 
 
 class PaymentRequiredError(LetsFGError):
