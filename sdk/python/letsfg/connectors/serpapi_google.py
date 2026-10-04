@@ -540,6 +540,11 @@ _CABIN_CLASSES = {
     "premium": "premium",
     "business": "business",
     "first": "first",
+    # Measured 2026-10-03: a response segment reads "First Class", the value the
+    # request parameter is *not* spelled with. Without this key the lookup missed
+    # and fell through to the economy default, mislabelling every First-class
+    # segment. Only measured spellings are added here (design §3.5).
+    "first class": "first",
 }
 
 

@@ -293,6 +293,16 @@ top-level `airports[]` block. Note that **`layovers` are given separately from
 segment `duration`s** — which is exactly the shape that makes §12's defect
 detectable.
 
+Two facts the field list above does not carry, both needed before reading a cabin
+off an offer. **A response segment's `travel_class` reads `"First Class"`, measured
+2026-10-03** — the spelling the *request* parameter is not written with, and the
+reason a map holding only `"first"` silently mislabels the segment as economy
+(`_CABIN_CLASSES`). And **a `type=1` response is not the whole round trip**: it
+carries the outbound options, each with a `departure_token` and a `price` that
+SerpApi's own round-trip example labels "Total price"; the return options come from
+repeating the search with that token (documented on the engine page, not measured
+here). A consumer that reads only the first response never sees the return legs.
+
 `google_flights_deals` fields: `departure_informations{airport_name,airport_code,city,city_id,country,gps_coordinates}`
 and `deals[]` with `destination_id` (kgmid), `name`, `country`, `price`,
 `average_price`, `discount_percentage`, `flight_link`, `serpapi_flight_link`,

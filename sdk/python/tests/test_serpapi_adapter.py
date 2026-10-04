@@ -44,6 +44,7 @@ from letsfg.connectors.serpapi_google import (
     SerpApiTransport,
     Stops,
     TravelExploreRequest,
+    cabin_class_for,
     classify_429,
     classify_status,
     itinerary_identity,
@@ -193,6 +194,32 @@ def test_search_maps_the_recorded_fixture() -> None:
     assert segment.cabin_class == "economy"
     assert segment.aircraft
     assert offer.outbound.stopovers == len(offer.outbound.segments) - 1
+
+
+def test_first_class_is_not_mapped_to_economy() -> None:
+    """Measured 2026-10-03: a segment's cabin reads ``"First Class"``, not ``"First"``.
+
+    ``_CABIN_CLASSES`` held only ``"first"``, so the lookup missed and fell through to
+    the economy default — a First-class itinerary was labelled economy on every
+    segment. The mapping is asserted at the segment, because that is where a consumer
+    reads it.
+    """
+    assert cabin_class_for("First Class") == "first"
+    row = {
+        "price": 9061,
+        "flights": [
+            {
+                "flight_number": "BA 297",
+                "airline": "British Airways",
+                "travel_class": "First Class",
+                "airplane": "Boeing 777",
+                "departure_airport": {"id": "ORD", "name": "O'Hare", "time": "2026-10-30 20:00"},
+                "arrival_airport": {"id": "LHR", "name": "Heathrow", "time": "2026-10-31 08:30"},
+            }
+        ],
+    }
+    offer = to_flight_offer(row, currency="USD")
+    assert offer.outbound.segments[0].cabin_class == "first"
 
 
 def test_a_deep_search_is_declared_as_deep() -> None:
