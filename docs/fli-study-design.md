@@ -570,6 +570,42 @@ bought**, by owner decision. Choosing fli is therefore choosing the unhedged sid
 table outright, not choosing it over a purchasable alternative — which is precisely what
 F2 asks.
 
+### 6.7 Rented routes to Google Flights: Serper.dev, measured
+
+F2 settled *owned* acquisition. The rented equivalent is a vendor that already
+carries Google Flights data, and the question there is not price but permission.
+**Serper.dev was measured on 2026-10-03** — key `SERPER_KEY` in this machine's
+`.env`, the name one letter from the SerpApi key's
+([`serpapi-provider-design.md`](serpapi-provider-design.md) §14) — and it is **not
+a route to Google Flights at any endpoint**:
+
+| Measurement | Request | Observed |
+|---|---|---|
+| No flights vertical | `POST https://google.serper.dev/{flights,travel,hotels}` | `404 {"message":"Not found"}` for all three; of the surface probed, only `/search` answers |
+| A fare query carries no fare data | `POST /search`, `q="flights Gdansk to Barcelona"` | Top-level keys `organic`, `peopleAlsoAsk`, `relatedSearches` only — no price, no itinerary, no flight widget |
+| Google is refused by the scraper | `POST https://scrape.serper.dev`, `{"url":"https://www.google.com/travel/flights?q=…"}` | `400 Invalid "url" parameter - Google is not allowed` — on both the `scrape.` host and `google.serper.dev/scrape` |
+| The refusal is Google-specific | Same endpoint, `kayak.com/flights/GDN-BCN/2026-06-15` | `200`, page text returned — a policy on the domain, not a broken endpoint |
+
+Two consequences, both of which would otherwise be rediscovered:
+
+- **The prices in a fare query are third-party marketing copy, not fares.** The
+  organic snippets do carry numbers ("$24", "PLN109*", "start at $28") — Skyscanner,
+  Kiwi and airline landing pages rendered as search snippets. They have no
+  itinerary, no date binding and no seller identity, so under the §6.1 invariant
+  they are not even an observation, let alone a baseline; a funnel that harvested
+  them would be building on advertising text.
+- **"Rent the Google Flights graph" has no vendor we hold.** The class of vendor
+  that could supply it — a SERP or scraping API — excludes Google by name here. So
+  both routes to that fare universe terminate: owned acquisition (fli) was
+  declined, and the rented one refuses the domain outright. This does not reopen
+  F2; it removes the hedge the §6.6 economic table showed F2 choosing *against*,
+  which leaves "do without that fare universe" as the only available answer rather
+  than one of two preferences.
+
+> Scope of what was measured: one key, one route, one day, one query per endpoint.
+> It establishes that **no flights vertical exists** and that **Google is refused**;
+> it does not enumerate every Serper endpoint. The refusal message is Serper's own.
+
 ---
 
 ## 7. What adopting fli would and would not change
@@ -735,5 +771,11 @@ coverage may not alert**) — rather than from a blank page.
   admission gate (§6.6); strict terminology — *itinerary link*, never "booking link"
   (§5.1 P5); "zero marginal API fee" instead of "free" (front matter, §6.6); and D7
   widened to three options with fli's types forbidden in our contract.
+- *Probe, Serper.dev, 2026-10-03* — live, five requests on the key in this machine's
+  `.env`. Serper.dev is not a route to Google Flights at any endpoint: no flights
+  vertical (`404` on `/flights`, `/travel`, `/hotels`), a fare query returning only
+  organic marketing snippets, and the scraper refusing Google by name
+  (`400 Invalid "url" parameter - Google is not allowed`). Recorded as §6.7 with the
+  scope of the evidence; F2 is not reopened by it.
 - *Pending* — the P0 acceptance protocol (it needs live requests to Google from our
   network), and the owner decisions D6, D7, D11, D12.
