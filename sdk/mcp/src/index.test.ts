@@ -149,9 +149,12 @@ describe('MCP server — hotel contract guards', () => {
   });
 
   it('get_hotel_booking names attention as a final status', () => {
+    // The per-state field list moved out of the description into letsfg://guide,
+    // where envelope.test.ts asserts it — the description keeps only the fact an
+    // agent acts on: that the state is terminal, so polling stops.
     const def = tool('get_hotel_booking');
     assert.match(def, /attention/);
-    assert.match(def, /total_price/);
+    assert.match(def, /final/);
   });
 
   it('no hotel tool describes the retired deposit process as current', () => {

@@ -457,7 +457,44 @@ const GUIDE_TEXT =
   '- Search is free — search multiple dates, cabin classes, airport combos liberally\n' +
   '- Search is async: POST /api/search -> poll /api/results/<id>. Poll immediately, then every 2s — do not sleep before the first poll\n' +
   '- A search reports `completed` BEFORE it stops growing. While `split_ticket_pending` or `gf_enrich_pending` is true, keep polling: the cheapest offer often lands after the status turns terminal\n' +
-  '- Covers hundreds of airlines across all continents including low-cost carriers\n';
+  '- Covers hundreds of airlines across all continents including low-cost carriers\n' +
+  '\n' +
+  '## Reading a search result\n' +
+  'Some offers carry `starlink` for in-flight Starlink Wi-Fi: "confirmed_all" / "confirmed_some" mean the carrier has FULLY fitted that aircraft type, "likely_all" / "likely_some" mean the rollout on that type is underway but incomplete. State only "confirmed_*" as fact; describe "likely_*" as "the airline is fitting this aircraft type, not guaranteed on your flight". Anything ending in "_some" has at least one leg WITHOUT it. An absent field means no information, NOT an absence of Wi-Fi.\n' +
+  '\n' +
+  'Some offers are SPLIT TICKETS: two separately-issued tickets through a hub, each leg booked from whatever is cheapest for it (usually two different airlines), because no one seller offers the combination as a single ticket. They carry `split_ticket: "true"`, `combo_type: "virtual_interlining"` and `self_transfer: "unprotected"`. ALWAYS tell the user when an offer is a split ticket and what unprotected means: the tickets are not linked, so if the first flight is late and the connection is missed, the second airline owes nothing — no rebooking, no refund. Never present a split ticket as though it were one through-fare.\n' +
+  '\n' +
+  '## Booking outcomes\n' +
+  'Nothing is charged by LetsFG to search or to book. On a completed booking, the airline prices are what the traveller pays.\n' +
+  '\n' +
+  'A flight booking is HELD on the connected card, not taken, and is captured only once a real airline PNR exists. While it is in progress, poll get_flight_booking every 20-30 s; its states are:\n' +
+  '  completed       -> PNR issued, card charged\n' +
+  '  failed          -> the hold was released, nothing was charged\n' +
+  '  needs_attention -> a human is looking at it; do NOT rebook\n' +
+  'Do not rebook while the state is still moving, and do not treat a slow poll as a failure — the money is HELD, not taken, until the airline confirms. Refs last one hour past the booking start.\n' +
+  '\n' +
+  'Hotel rates work the same way: the full price is HELD on the connected Revolut payment method (authorised, not taken), LetsFG books and pays the supplier, and the hold is captured only once the supplier has confirmed. There is no reservation fee, no deposit and no pay link.\n' +
+  '\n' +
+  '## Hotel pricing\n' +
+  '`price` is what the guest pays, in `currency` (USD unless you pass currency): the supplier\'s cost plus `markup_rate` (6.4% for Revolut Pay or an EEA card, 8.3% for a card issued outside the EEA). Nothing is added at booking. A free-cancellation refund returns the price less the 2% that covers unrecoverable payment costs.\n' +
+  '\n' +
+  '## Hotel booking outcomes\n' +
+  'get_hotel_booking returns status in_progress, succeeded, failed or attention; the last three are final, so stop polling. Per state:\n' +
+  '  succeeded -> confirmation, hotel, room, total_price + currency (what the guest is charged), supplier_paid + supplier_currency, payment_status, refundable, free_cancellation_until, cancellation_ladder and terms\n' +
+  '  failed    -> error, written for the guest. The hold was released; nothing was charged\n' +
+  '  attention -> error (+ confirmation if known). The outcome could not be settled automatically; the hold is kept and nothing is charged while a person checks with the supplier. Do NOT book again\n' +
+  'The guest is e-mailed in every case. Read-only and safe to repeat.\n' +
+  '\n' +
+  '## Connecting a payment method\n' +
+  'Nothing is charged to connect, and a person approves once in a browser — there is no endpoint that mints a token from card details, so never ask for card numbers and do not try to automate it. Two ways in: (a) add LetsFG as a connector in an assistant that supports remote MCP servers and approve it, or (b) any OAuth-capable client can register itself — see https://letsfg.co/for-agents, section "Option B". Both land on the same card screen.\n' +
+  '\n' +
+  'RETIRED 2026-09-02: the Stripe lanes (setup_url, setup_session_id, payment_method_id, card_token) and every token they issued. Passing them now fails.\n' +
+  '\n' +
+  '## Paused bookings\n' +
+  'get_flight_booking returns `awaiting_choice` when the booking agent has stopped mid-checkout holding a cart: at the airline\'s own seat map, at a paid extra it has just priced, or at a fare that moved. NOTHING PROGRESSES UNTIL YOU ANSWER, and the cart expires. Put the question to the traveller with the options and the time left, then send their answer with answer_booking_question:\n' +
+  '  kind "seat"   -> seats: [{ d: "12A" }, ...] from the map you were shown, or skip: true\n' +
+  '  kind "extra"  -> confirm: true to take it (a bag, or a moved fare), or confirm: false / skip: true to decline\n' +
+  'Always pass the `round` from `awaiting_choice` — it says WHICH question you are answering. A return trip pauses twice, and an answer without it could seat the wrong leg.\n';
 
 const RESOURCES = [
   {
@@ -481,19 +518,14 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'search_flights',
     description:
-      'Search hundreds of airlines for live flight prices — completely FREE, unlimited, read-only.\n\n' +
-      'Returns structured offers with prices, airlines, times, durations, and stopovers. '+
-      'Some offers carry `starlink` for in-flight Starlink Wi-Fi: "confirmed_all" / "confirmed_some" '+
-      'mean the carrier has FULLY fitted that aircraft type, "likely_all" / "likely_some" mean the '+
-      'rollout on that type is underway but incomplete. State only "confirmed_*" as fact; describe '+
-      '"likely_*" as "the airline is fitting this aircraft type, not guaranteed on your flight". '+
-      'Anything ending in "_some" has at least one leg WITHOUT it. An absent field means no '+
-      'information, NOT an absence of Wi-Fi. '  +
-      'Covers airlines across all continents including low-cost carriers.\n\n' +
-      'Search is async: this tool polls for you, including waiting out the late split-ticket merge.\n\n' +
-      'Some offers are SPLIT TICKETS: two separately-issued tickets through a hub, each leg booked from whatever is cheapest for it (usually two different airlines), because no one seller offers the combination as a single ticket. They carry `split_ticket: "true"`, `combo_type: "virtual_interlining"` and `self_transfer: "unprotected"`. ALWAYS tell the user when an offer is a split ticket and what unprotected means: the tickets are not linked, so if the first flight is late and the connection is missed, the second airline owes nothing — no rebooking, no refund. Never present a split ticket as though it were one through-fare.\n\n' +
-      'Requires LETSFG_BEARER_TOKEN or LETSFG_API_KEY. ' +
-      'See letsfg://guide resource for the full authenticate->search->book workflow.',
+      'Search hundreds of airlines for live flight prices — completely FREE, unlimited, read-only. ' +
+      'Returns offers with prices, airlines, times, durations, stopovers and conditions. Search is ' +
+      'async: this tool polls for you, including waiting out the late split-ticket merge.\n\n' +
+      'Two facts in the result change what you tell the user: a SPLIT TICKET (`split_ticket: "true"`, ' +
+      '`self_transfer: "unprotected"`) is two unlinked tickets, so a missed connection is neither ' +
+      'rebooked nor refunded and it must never be presented as a through-fare; and `starlink: ' +
+      '"confirmed_*"` is a fact while `"likely_*"` is not. Full rules: letsfg://guide.\n\n' +
+      'Requires LETSFG_BEARER_TOKEN or LETSFG_API_KEY.',
     inputSchema: {
       type: 'object',
       required: ['origin', 'destination', 'date_from'],
@@ -515,8 +547,8 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'resolve_location',
     description:
-      'Convert a city/airport name to IATA codes. Always call before search_flights if you only have a city name. ' +
-      'Read-only, safe to call multiple times.',
+      'Convert a city/airport name to IATA codes. Call this before search_flights when you only have ' +
+      'a city name — "London" is five airports. Read-only.',
     inputSchema: {
       type: 'object',
       required: ['query'],
@@ -534,13 +566,13 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'book_flight',
     description:
-      'Book a flight from a search result.\n\n' +
-      'FLOW: authenticate (once) -> search_flights -> book_flight\n' +
-      'CHARGES: nothing from LetsFG. A completed booking pays the airline prices from airlines and the major booking sites.\n' +
-      'RESULT: either {"booked": true, "order_id": "..."} or {"booked": false, "booking_url": "..."} — ' +
-      'the second means the booking genuinely did not complete and nothing was charged. That is a normal ' +
-      'outcome, NOT a transient error: do not retry, give the user the booking_url.\n' +
-      'SAFETY: use REAL passenger details — names must match passport, email receives the e-ticket.',
+      'Book a flight from a search result: authenticate (once) -> search_flights -> book_flight. ' +
+      'Nothing is charged by LetsFG.\n\n' +
+      'A result of {"booked": false, "booking_url": "..."} means the booking genuinely did not ' +
+      'complete and nothing was charged — give the user the url. That is a normal outcome, NOT a ' +
+      'transient error: do not retry. Use REAL passenger details: names must match the passport, and ' +
+      'the e-ticket goes to the email given.\n\n' +
+      'On a PFS token this returns a booking_ref to poll with get_flight_booking, not a PNR.',
     inputSchema: {
       type: 'object',
       required: ['search_id', 'offer_id', 'passengers', 'contact_email'],
@@ -573,19 +605,13 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'get_flight_booking',
     description:
-      'Poll a flight booking started by book_flight. REQUIRED to learn the outcome: on a PFS ' +
-      'Bearer token book_flight returns a booking_ref and state "booking_in_progress", not a ' +
-      'PNR - the booking itself takes 4-11 minutes.\n\n' +
-      'Call it every 20-30 s with that booking_ref until state is terminal:\n' +
-      '  completed       -> PNR issued, card charged\n' +
-      '  failed          -> the hold was released, nothing was charged\n' +
-      '  needs_attention -> a human is looking at it; do NOT rebook\n\n' +
-      'Do not rebook while the state is still moving, and do not treat a slow poll as a ' +
-      'failure - the money is HELD, not taken, until the airline confirms. Refs last one hour ' +
-      'past the booking start.\n\n' +
-      'On the Developer API lane (X-API-Key) book_flight returns a booking_id and the state is ' +
-      'read from /developers/api/v1/flights/bookings/{booking_id}: pass that booking_id as ' +
-      'booking_ref.',
+      'Poll a flight booking started by book_flight — REQUIRED to learn the outcome, because on a PFS ' +
+      'Bearer token book_flight returns a booking_ref and state "booking_in_progress", not a PNR. The ' +
+      'booking itself takes 4-11 minutes.\n\n' +
+      'Call it every 20-30 s until the state is terminal: completed (PNR issued, card charged), failed ' +
+      '(the hold was released, nothing was charged) or needs_attention (a human is looking — do NOT ' +
+      'rebook). Do not rebook while it is still moving, and do not read a slow poll as failure. ' +
+      'States and fields: letsfg://guide.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -600,16 +626,13 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'answer_booking_question',
     description:
-      'Answer the question a paused booking is waiting on. get_flight_booking returns ' +
-      '`awaiting_choice` when the booking agent has stopped mid-checkout holding a cart: at the ' +
-      "airline's own seat map, at a paid extra it has just priced, or at a fare that moved.\n\n" +
-      'NOTHING PROGRESSES UNTIL YOU ANSWER, and the cart expires. Put the question to the ' +
-      'traveller with the options and the time left, then send their answer here.\n\n' +
-      '  kind "seat"   -> seats: [{ d: "12A" }, ...] from the map you were shown, or skip: true\n' +
-      '  kind "extra"  -> confirm: true to take it (a bag, or a moved fare), or confirm: false / ' +
-      'skip: true to decline\n\n' +
-      'Always pass the `round` from `awaiting_choice` - it says WHICH question you are ' +
-      'answering. A return trip pauses twice, and an answer without it could seat the wrong leg.',
+      'Answer the question a paused booking is waiting on — get_flight_booking returns ' +
+      '`awaiting_choice` when the booking agent has stopped mid-checkout holding a cart. NOTHING ' +
+      'PROGRESSES UNTIL YOU ANSWER, and the cart expires: put the question to the traveller with the ' +
+      'options and the time left, then send their answer here.\n\n' +
+      'Always pass the `round` from `awaiting_choice` — it says WHICH question you are answering. A ' +
+      'return trip pauses twice, and an answer without it could seat the wrong leg. Shapes and ' +
+      'examples: letsfg://guide.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -630,9 +653,8 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'resolve_hotel_city',
     description:
-      'Convert a place name to the supplier city id that search_hotels needs. Always call this first if you ' +
-      'only have a city name. Read-only and safe to repeat.\n\n' +
-      'Use `Id` from the first result as city_id and `Name` as city_name.',
+      'Convert a place name to the supplier city id that search_hotels needs. Call this first if you ' +
+      'only have a city name; use `Id` as city_id and `Name` as city_name. Read-only and safe to repeat.',
     inputSchema: {
       type: 'object',
       required: ['text'],
@@ -645,14 +667,11 @@ const TOOLS: ToolDefinition[] = [
     name: 'search_hotels',
     description:
       'Search real, bookable hotel inventory. Requires a connected payment method — the SAME one that ' +
-      'authorises flight booking. That applies to search too, not just booking, because a search opens a ' +
-      'real session at the supplier.\n\n' +
+      'authorises flight booking, because a search opens a real session at the supplier.\n\n' +
       'Every rate type is returned, refundable and non-refundable; each offer\'s `refundable` and ' +
-      '`free_cancellation_until` say which.\n\n' +
-      '`price` is what the guest pays, in `currency` (USD unless you pass currency): the supplier\'s cost ' +
-      'plus `markup_rate` (6.4% for Revolut Pay or an EEA card, 8.3% for a card issued outside the EEA). ' +
-      'Nothing is added at booking. Keep the chosen offer whole — book_hotel needs its `session_id`, ' +
-      '`combination_id_v2`, `price`, `expected_cost`, `currency` and `fx_rate`. Takes up to a few minutes.',
+      '`free_cancellation_until` say which. Keep the chosen offer whole: book_hotel needs its ' +
+      '`session_id`, `combination_id_v2`, `price`, `expected_cost`, `currency` and `fx_rate`. Takes up ' +
+      'to a few minutes. Pricing: letsfg://guide.',
     inputSchema: {
       type: 'object',
       required: ['city_id', 'city_name', 'check_in', 'check_out'],
@@ -673,17 +692,15 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'book_hotel',
     description:
-      'Book one hotel rate. The offer\'s full price is HELD on the connected Revolut payment method ' +
-      '(authorised, not taken); LetsFG books and pays the supplier; the hold is captured only once the ' +
-      'supplier has confirmed. If the booking fails for any reason the hold is released and nothing is ' +
-      'charged. There is no reservation fee, no deposit and no pay link.\n\n' +
-      'Returns a booking_job_id, NOT the booking — a booking takes minutes. Poll get_hotel_booking every ' +
-      '~20s until status is succeeded, failed or attention; all three are final.\n\n' +
-      'Copy expected_price (the offer\'s price), expected_cost, currency and fx_rate from the chosen offer ' +
-      'exactly. A USD offer sent without its currency is refused (400 price_mismatch). Guest names, phone ' +
-      'and e-mail are checked before anything is held (400 invalid_details). guests needs ONE name per guest ' +
-      'in the room, children included — adults first, then children in child_ages order. Do NOT call book_hotel again ' +
-      'for a booking whose job is running — poll it; a retry returns the same job (duplicate: true).',
+      'Book one hotel rate: the offer\'s full price is HELD on the connected payment method ' +
+      '(authorised, not taken) and captured only once the supplier has confirmed, so a failed booking ' +
+      'costs nothing. There is no reservation fee, no deposit and no pay link.\n\n' +
+      'Returns a booking_job_id, NOT the booking — poll get_hotel_booking every ~20 s until succeeded, ' +
+      'failed or attention; all three are final. Do NOT call book_hotel again while the job is ' +
+      'running: poll it, since a retry returns the same job (duplicate: true).\n\n' +
+      'Copy expected_price, expected_cost, currency and fx_rate from the chosen offer exactly — a USD ' +
+      'offer sent without its currency is refused (400 price_mismatch). guests needs ONE name per ' +
+      'guest in the room, children included. Details: letsfg://guide.',
     inputSchema: {
       type: 'object',
       required: ['session_id', 'hotel_code', 'combination_id_v2', 'expected_price',
@@ -731,15 +748,12 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'get_hotel_booking',
     description:
-      'Collect the result of a booking started with book_hotel. Poll every ~20s.\n\n' +
-      'status is in_progress, succeeded, failed or attention; the last three are final — stop polling.\n' +
-      '- succeeded: confirmation, hotel, room, total_price + currency (what the guest is charged), ' +
-      'supplier_paid + supplier_currency, payment_status, refundable, free_cancellation_until, ' +
-      'cancellation_ladder and terms.\n' +
-      '- failed: error, written for the guest. The hold was released; nothing was charged.\n' +
-      '- attention: error (+ confirmation if known). The outcome could not be settled automatically; the ' +
-      'hold is kept (nothing charged) while a person checks with the supplier. Do NOT book again.\n' +
-      'The guest is e-mailed in every case. Read-only and safe to repeat.',
+      'Collect the result of a booking started with book_hotel. Poll every ~20 s: status is ' +
+      'in_progress, then succeeded, failed or attention — the last three are final, so stop polling.\n\n' +
+      'failed means the hold was released and nothing was charged. attention means the outcome could ' +
+      'not be settled automatically: the hold is kept (nothing charged) while a person checks with the ' +
+      'supplier, so do NOT book again. The guest is e-mailed in every case. Fields per state: ' +
+      'letsfg://guide.',
     inputSchema: {
       type: 'object',
       required: ['booking_job_id'],
@@ -752,9 +766,9 @@ const TOOLS: ToolDefinition[] = [
     name: 'cancel_hotel_booking',
     description:
       'Cancel a hotel booking made by this account and refund the guest. A zero-charge cancellation (a ' +
-      'refundable rate before free_cancellation_until) refunds the charge in full; a cancellation that would ' +
-      'cost money is refused (409) — the hotel\'s own ladder is in the booking terms.\n\n' +
-      'Takes over a minute; if it times out do NOT assume it failed — re-check before retrying.',
+      'refundable rate before free_cancellation_until) refunds the charge in full; a cancellation that ' +
+      'would cost money is refused (409), and the hotel\'s own ladder is in the booking terms.\n\n' +
+      'Takes over a minute — if it times out, re-check before retrying rather than assuming it failed.',
     inputSchema: {
       type: 'object',
       required: ['confirmation'],
@@ -767,17 +781,12 @@ const TOOLS: ToolDefinition[] = [
     name: 'authenticate',
     description:
       'Explain how to connect a card so this server can search and book. Nothing is charged to ' +
-      'connect — a 0.00 Revolut setup that saves the card so a booking can be charged later.\n\n' +
-      'Call with no arguments. It returns the current instructions and add_card_url ' +
-      '(https://letsfg.co/connect). A PERSON must approve once in a browser — there is no endpoint ' +
-      'that mints a token from card details, so do not ask the user for card numbers and do not ' +
-      'try to automate this step.\n\n' +
-      'Two ways in: (a) add LetsFG as a connector in an assistant that supports remote MCP servers ' +
-      'and approve it, or (b) any OAuth-capable client can register itself — see ' +
-      'https://letsfg.co/for-agents, section "Option B". Both land on the same card screen.\n\n' +
-      'RETIRED 2026-09-02: the Stripe lanes (setup_url, setup_session_id, payment_method_id, ' +
-      'card_token) and every token they issued. Passing them now fails.\n\n' +
-      'This does NOT create a Developer API billing account. Do not use connect_payment for this.',
+      'connect — a 0.00 Revolut setup that saves the card so a booking can be charged later. Returns ' +
+      'the current instructions and add_card_url (https://letsfg.co/connect).\n\n' +
+      'A PERSON must approve once in a browser: there is no endpoint that mints a token from card ' +
+      'details, so never ask the user for card numbers. This does NOT create a Developer API billing ' +
+      'account — do not use connect_payment for it. Ways in and the retired Stripe lanes: ' +
+      'letsfg://guide.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -787,12 +796,10 @@ const TOOLS: ToolDefinition[] = [
     name: 'connect_payment',
     description:
       '[Developer API only — you almost certainly want `authenticate` instead] Mints a one-time link ' +
-      'for connecting a payment method to a PAID prepaid Developer API account. Nothing is charged to ' +
-      'connect and card details never touch LetsFG: a PERSON opens the returned connect_url in a ' +
-      'browser and saves a card, Revolut Pay or Google Pay there. Do not ask a user for card numbers ' +
-      'and do not try to automate that step. Refuses to run unless LETSFG_API_KEY is set, because ' +
-      'agents kept calling this and creating billing accounts they did not need. Replaced setup_payment ' +
-      'on 2026-09-08, when the Stripe lane was retired.',
+      'for connecting a payment method to a PAID prepaid Developer API account. A person opens the ' +
+      'returned connect_url in a browser and saves a card, Revolut Pay or Google Pay there; card ' +
+      'details never touch LetsFG, so do not ask for card numbers and do not automate that step. ' +
+      'Refuses to run unless LETSFG_API_KEY is set.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -1447,7 +1454,13 @@ rl.on('line', async (line) => {
         send({
           jsonrpc: '2.0',
           id,
-          result: { content: [{ type: 'text', text }], ...structuredFor(text) },
+          result: {
+            // The block is the machine-readable payload (or the guide's markdown):
+            // state for the model to act on, not prose to show a user verbatim.
+            // `Annotated.annotations` exists in the 2024-11-05 revision we answer.
+            content: [{ type: 'text', text, annotations: { audience: ['assistant'] } }],
+            ...structuredFor(text),
+          },
         });
       } catch (e) {
         send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Error: ${e}` }], isError: true } });

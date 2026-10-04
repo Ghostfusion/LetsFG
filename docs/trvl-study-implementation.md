@@ -218,6 +218,12 @@ Verified: `cd sdk/mcp && npx tsc --noEmit && npm test` → 41/41 pass.
 **Test:** extend `sdk/mcp/src/index.test.ts` (every tool has `outputSchema`; a call returns `structuredContent`).
 **Risk:** medium — verify against one real MCP client (Claude/Cursor) before publishing; the spawn tests cannot prove client rendering.
 
+**Resolution (2026-10-03): DONE, with one divergence.** `outputSchema` is attached to all 14 tools from the single shared `ENVELOPE_OUTPUT_SCHEMA`, and `structuredContent` is the text payload parsed (`structuredFor`) rather than a second construction that could disagree — `envelope.test.ts` asserts the two are deep-equal for every enveloped tool.
+
+The **audience annotation was missing until now**, and the plan's two halves do not map onto two blocks: the result carries one text block (the JSON payload, or the guide's markdown), so it is annotated `annotations: { audience: ['assistant'] }` — state for the model to act on, not prose to hand a user. This is a *declared-revision* field, not a claim on a newer one: `TextContent extends Annotated`, and `annotations.audience` is in the 2024-11-05 schema this server answers (verified against `schema/2024-11-05/schema.ts`). Asserted for every enveloped tool plus the guide. If a separate human summary is ever added, it is the one that takes `["user"]`.
+
+`isError` stays reserved for genuine tool failures, as specified.
+
 ### P2.3 — Move long guidance out of `tools/list` into the guide resource
 
 **Files:** `sdk/mcp/src/index.ts` (`description` fields, `GUIDE_TEXT`).
@@ -225,6 +231,24 @@ Verified: `cd sdk/mcp && npx tsc --noEmit && npm test` → 41/41 pass.
 **Acceptance:** `tools/list` payload size drops measurably (record before/after bytes); every moved rule is present verbatim in the guide.
 **Test:** a test asserts the guide contains the split-ticket and Starlink sentences, and that tool descriptions no longer duplicate them.
 **Risk:** low-medium — an agent that only reads `tools/list` loses context; hence keep the two load-bearing facts.
+
+**Resolution (2026-10-03): DONE.** Measured against the real server — `tools/list` from a spawned stdio server pointed at a fake `letsfg.co`:
+
+| | before | after |
+|---|---|---|
+| whole `tools/list` payload | 41,220 B | 38,231 B (−7.3%) |
+| the 14 descriptions | 9,115 B | 6,183 B (−32%) |
+| longest description | 1,583 B (`search_flights`) | 761 B (`book_hotel`) |
+
+The payload moves less than the descriptions because the input schemas dominate it; the descriptions are what an agent reads on every connect.
+
+**Moved into `letsfg://guide`**, verbatim: the Starlink field rules; the split-ticket paragraph; the flight booking state machine and the "money is HELD, not taken" sentence; the hotel hold and pricing prose (markup rates, the 2% cancellation refund); the connect-a-payment-method instructions and the retired Stripe lanes; the paused-booking shapes; and the `get_hotel_booking` per-state field list.
+
+**Kept inline** because they change what an agent *does*, not how it explains things, and each is asserted in `envelope.test.ts` (`RETAINED_FACTS`): the split-ticket warning and `confirmed_*` vs `likely_*` on `search_flights`; "NOTHING PROGRESSES UNTIL YOU ANSWER" on `answer_booking_question`; the `booking_url` outcome rule on `book_flight`; "do NOT call book_hotel again" while a job runs.
+
+**Tests.** `sdk/mcp/src/envelope.test.ts`: the guide holds every moved rule; no description repeats one; every retained fact is still inline; the descriptions stay inside a recorded budget (`DESCRIPTION_BUDGET = 6800`, `MAX_DESCRIPTION_BYTES = 800`), so re-bloating `tools/list` takes a deliberate edit rather than happening by default.
+
+**Gap found while moving.** The `get_hotel_booking` field list lived only in that description, so moving it would have *deleted* the information rather than relocated it. It went into the guide's "Hotel booking outcomes" section, and the guide test asserts those fields are documented — and the pre-existing `get_hotel_booking names attention as a final status` guard, which asserted `/total_price/` against the description, now asserts the fact that matters (the state is terminal) and leaves the field list to the guide.
 
 ---
 

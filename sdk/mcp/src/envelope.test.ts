@@ -538,7 +538,12 @@ async function callTool(
   name: string,
   args: Record<string, unknown>,
   env: Record<string, string> = {},
-): Promise<{ payload: Record<string, unknown> | null; text: string; structured: Record<string, unknown> | undefined }> {
+): Promise<{
+  payload: Record<string, unknown> | null;
+  text: string;
+  structured: Record<string, unknown> | undefined;
+  audience: string[] | undefined;
+}> {
   const { server, baseUrl } = await fakeApi(() => ({ status: 200, body: PERMISSIVE_BODY }));
   const proc = spawnServer({ LETSFG_BASE_URL: baseUrl, ...env });
   try {
@@ -549,14 +554,20 @@ async function callTool(
     rpc(proc, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } });
     const response = await nextMessage(proc);
     const result = response.result as {
-      content: Array<{ text: string }>;
+      content: Array<{ text: string; annotations?: { audience?: string[] } }>;
       structuredContent?: Record<string, unknown>;
     };
     const text = result.content[0].text;
+    const audience = result.content[0].annotations?.audience;
     try {
-      return { payload: JSON.parse(text) as Record<string, unknown>, text, structured: result.structuredContent };
+      return {
+        payload: JSON.parse(text) as Record<string, unknown>,
+        text,
+        structured: result.structuredContent,
+        audience,
+      };
     } catch {
-      return { payload: null, text, structured: result.structuredContent };
+      return { payload: null, text, structured: result.structuredContent, audience };
     }
   } finally {
     proc.kill();
@@ -564,7 +575,7 @@ async function callTool(
   }
 }
 
-async function advertisedTools(): Promise<Array<{ name: string; outputSchema?: Record<string, unknown> }>> {
+async function advertisedTools(): Promise<Array<{ name: string; description: string; outputSchema?: Record<string, unknown> }>> {
   const { server, baseUrl } = await fakeApi(() => ({ status: 200, body: PERMISSIVE_BODY }));
   const proc = spawnServer({ LETSFG_BASE_URL: baseUrl });
   try {
@@ -574,7 +585,7 @@ async function advertisedTools(): Promise<Array<{ name: string; outputSchema?: R
     await nextMessage(proc);
     rpc(proc, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const response = await nextMessage(proc);
-    const result = response.result as { tools: Array<{ name: string; outputSchema?: Record<string, unknown> }> };
+    const result = response.result as { tools: Array<{ name: string; description: string; outputSchema?: Record<string, unknown> }> };
     return result.tools;
   } finally {
     proc.kill();
@@ -672,5 +683,106 @@ describe('MCP server — envelope coverage across the advertised tool list', () 
       assert.deepEqual(props.freshness.enum, ['live', 'unknown'], tool.name);
       assert.equal(schema.additionalProperties, true, `${tool.name}: the payload half stays open`);
     }
+  });
+});
+
+// ── Guidance lives in the guide, not in tools/list ────────────────────────
+// `tools/list` is what every client receives on connect, and for a client that
+// never fetches a resource it is the whole of what the server knows. The
+// reference material — how to read a Starlink field, what a split ticket means,
+// the booking state machine, hotel pricing, the paused-booking shapes — belongs
+// in `letsfg://guide`, fetched on demand. A description is a contract, not an
+// essay.
+//
+// Measured 2026-10-03: the 14 descriptions were 9,115 bytes before the split and
+// 6,183 after (the whole tools/list payload, which the input schemas dominate,
+// went 41,220 -> 38,231). The budget below is the after-state with headroom:
+// raising it re-bloats tools/list for every client, so it is a deliberate edit.
+
+const DESCRIPTION_BUDGET = 6800;
+const MAX_DESCRIPTION_BYTES = 800;
+
+/** Rules moved out of the tool descriptions into the guide, verbatim. */
+const GUIDE_ONLY_RULES = [
+  'Anything ending in "_some" has at least one leg WITHOUT it.',
+  'An absent field means no information, NOT an absence of Wi-Fi.',
+  'because no one seller offers the combination as a single ticket.',
+  'the tickets are not linked, so if the first flight is late and the connection is missed, the second airline owes nothing — no rebooking, no refund.',
+  'the money is HELD, not taken, until the airline confirms',
+  "the supplier's cost plus `markup_rate` (6.4% for Revolut Pay or an EEA card, 8.3% for a card issued outside the EEA)",
+];
+
+/**
+ * Facts that stay inline because they change what an agent DOES with the answer,
+ * not merely how it explains it. Losing one of these is the failure mode the
+ * split risks, so each is asserted in the description that owns it.
+ */
+const RETAINED_FACTS: Array<[tool: string, fact: string]> = [
+  ['search_flights', 'SPLIT TICKET'],
+  ['search_flights', '"confirmed_*"` is a fact'],
+  ['answer_booking_question', 'NOTHING PROGRESSES UNTIL YOU ANSWER, and the cart expires'],
+  ['book_flight', '"booking_url"'],
+  ['book_hotel', 'Do NOT call book_hotel again'],
+];
+
+describe('guidance — the guide carries the rules, tools/list carries the contract', () => {
+  it('the guide holds every rule moved out of the tool descriptions', async () => {
+    const guide = await callTool('load_resources', {});
+    for (const rule of GUIDE_ONLY_RULES) {
+      assert.ok(guide.text.includes(rule), `letsfg://guide is missing a moved rule: ${rule}`);
+    }
+    // Field lists that were dropped from descriptions must be documented here, or
+    // moving them would have deleted the information rather than relocated it.
+    for (const field of ['total_price', 'supplier_paid', 'free_cancellation_until', 'cancellation_ladder']) {
+      assert.ok(guide.text.includes(field), `letsfg://guide must document the ${field} field`);
+    }
+    for (const [, fact] of RETAINED_FACTS) {
+      assert.ok(!GUIDE_ONLY_RULES.some((rule) => fact.includes(rule)),
+        `a retained fact must not also be a guide-only rule: ${fact}`);
+    }
+  });
+
+  it('no tool description repeats a moved rule', async () => {
+    const tools = await advertisedTools();
+    for (const tool of tools) {
+      for (const rule of GUIDE_ONLY_RULES) {
+        assert.ok(!tool.description.includes(rule), `${tool.name} duplicates guide prose: ${rule}`);
+      }
+    }
+  });
+
+  it('keeps the facts that change what an agent tells the user', async () => {
+    const tools = await advertisedTools();
+    for (const [name, fact] of RETAINED_FACTS) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      assert.ok(tool, `${name} must be advertised`);
+      assert.ok(tool.description.includes(fact),
+        `${name} must keep "${fact}" inline — it changes what the agent does, so it cannot live only in letsfg://guide`);
+    }
+  });
+
+  it('descriptions stay inside the budget the split set', async () => {
+    const tools = await advertisedTools();
+    let total = 0;
+    for (const tool of tools) {
+      const bytes = Buffer.byteLength(tool.description, 'utf8');
+      total += bytes;
+      assert.ok(bytes <= MAX_DESCRIPTION_BYTES,
+        `${tool.name} description is ${bytes} bytes (max ${MAX_DESCRIPTION_BYTES}) — reference material belongs in letsfg://guide`);
+    }
+    assert.ok(total <= DESCRIPTION_BUDGET,
+      `the ${tools.length} descriptions total ${total} bytes (budget ${DESCRIPTION_BUDGET})`);
+  });
+
+  it('marks the result block as assistant-facing, not user prose', async () => {
+    // The block is the JSON payload the model acts on. Annotating the audience
+    // keeps a client from rendering it verbatim to the traveller, which matters
+    // most for the payloads that carry an envelope and raw offer data.
+    for (const [name, args] of ENVELOPED_TOOLS) {
+      const { audience } = await callTool(name, args);
+      assert.deepEqual(audience, ['assistant'], `${name}: the result block must be audience ["assistant"]`);
+    }
+    const guide = await callTool('load_resources', {});
+    assert.deepEqual(guide.audience, ['assistant'], 'the guide block is model input too');
   });
 });
