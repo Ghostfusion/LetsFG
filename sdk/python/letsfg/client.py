@@ -1143,10 +1143,15 @@ class LetsFG:
                 err = json.loads(body_text)
             except Exception:
                 err = {"detail": body_text}
+            # Same inference the main seam uses: this handler used to raise a
+            # bare LetsFGError, so a registration failure had no `error_code`
+            # even though every documented error carries one.
+            detail = err.get("detail", f"Registration failed ({e.code})")
             raise LetsFGError(
-                err.get("detail", f"Registration failed ({e.code})"),
+                detail,
                 status_code=e.code,
                 response=err,
+                error_code=err.get("error_code") or _infer_error_code(e.code, detail),
             ) from e
 
     # ── Internals ─────────────────────────────────────────────────────────

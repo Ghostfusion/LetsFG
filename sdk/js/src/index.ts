@@ -1002,10 +1002,14 @@ export class LetsFG {
 
     const data = await resp.json();
     if (!resp.ok) {
+      // Same inference the main seam uses. This threw a bare LetsFGError, so a
+      // registration failure was the one error with no errorCode at all.
+      const detail = (data as Record<string, string>).detail || `Registration failed (${resp.status})`;
       throw new LetsFGError(
-        (data as Record<string, string>).detail || `Registration failed (${resp.status})`,
+        detail,
         resp.status,
         data as Record<string, unknown>,
+        inferErrorCode(resp.status, detail),
       );
     }
     return data as Record<string, unknown>;

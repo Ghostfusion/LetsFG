@@ -491,3 +491,29 @@ describe('PFS search poll timeout', () => {
     }
   });
 });
+
+// ── Static register ───────────────────────────────────────────────────────
+
+describe('static register', () => {
+  it('a failed registration carries an inferred errorCode, not a bare error', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      return { ok: false, status: 429, json: async () => ({ detail: 'slow down' }) } as Response;
+    }) as typeof fetch;
+    try {
+      await assert.rejects(
+        () => LetsFG.register('agent', 'agent@example.com'),
+        (err: unknown) => {
+          const e = err as LetsFGError;
+          assert.equal(e.errorCode, ErrorCode.RATE_LIMITED);
+          assert.equal(e.errorCategory, ErrorCategory.TRANSIENT);
+          assert.equal(e.isRetryable, true, '429 is transient');
+          assert.equal(e.statusCode, 429);
+          return true;
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

@@ -72,8 +72,19 @@ _SCOPE = "flights:search flights:book profile:read"
 
 
 class BearerTokenError(Exception):
-    """No valid Bearer token. Run `letsfg auth` to connect a card."""
-    pass
+    """No valid Bearer token. Run `letsfg auth` to connect a card.
+
+    Carries the same machine-readable fields the documented error contract
+    promises (AGENTS.md, "Error handling") without subclassing `LetsFGError`:
+    the connectors layer stays independent of the Developer-API client. The
+    values are the ones `letsfg.client.ErrorCode`/`ErrorCategory` publish for
+    this condition — a missing or invalid credential is `AUTH_INVALID` and
+    `business`, and no retry conjures a card.
+    """
+
+    error_code = "AUTH_INVALID"
+    error_category = "business"
+    is_retryable = False
 
 
 # ── config ────────────────────────────────────────────────────────────────
