@@ -56,7 +56,7 @@ from becoming permanent:
 1. **Dead entries fail** — every parked path must exist on disk, so a deleted
    module cannot linger in the list.
 2. **Growth needs a deliberate edit** — the parked set is pinned to
-   `PARKED_TEST_MODULES = 19`, so adding a module requires updating that expectation
+   `PARKED_TEST_MODULES = 18`, so adding a module requires updating that expectation
    (and the recorded reason in `conftest.py`) in the same change.
 
 **Remaining follow-up (unchanged):** prefer **repair** (rewrite against the current

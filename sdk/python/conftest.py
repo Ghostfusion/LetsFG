@@ -8,13 +8,13 @@ longer exist, and both make ``pytest -m "not live"`` fail the required
 ``python-deterministic`` CI job (``.github/workflows/test.yml`` runs exactly
 that command).
 
-**Group 1 — 17 modules that fail at import (``ModuleNotFoundError``).**
+**Group 1 — 16 modules that fail at import (``ModuleNotFoundError``).**
 They import ``letsfg.connectors.*`` packages that were removed in commit
 ``f91be5b`` ("feat: remove local connectors, route all search through PFS cloud
 API", June 2026). Search and checkout now run server-side at letsfg.co, and
 ``letsfg/connectors/`` ships only ``auth.py`` (OAuth) and ``airport_tz.py``
 (timezone helpers). Because the error is raised at import time, collection
-aborts with 17 errors before any test runs.
+aborts with 16 errors before any test runs.
 
 **Group 2 — 2 modules that collect but fail at runtime.**
 They exercise the local connector-era resolver and telemetry helpers that were
@@ -50,7 +50,6 @@ collect_ignore_glob = [
     "tests/test_wizzair_connector.py",
     # Checkout engine / booking-holdings
     "tests/test_booking_holdings_booking_urls.py",
-    "tests/test_checkout_engine_configs.py",
     # Source/country filtering and regional source selection
     "tests/test_country_filter_completeness.py",
     "tests/test_india_direct_sources.py",

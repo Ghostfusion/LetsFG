@@ -217,7 +217,7 @@ test('SECURITY.md supported versions track the shipped version line', () => {
 // Quarantine is not the fix: a module should be repaired against the current API
 // or deleted. See docs/trvl-study-design.md §2.10.
 
-const PARKED_TEST_MODULES = 19;
+const PARKED_TEST_MODULES = 18;
 
 test('the parked Python test set is pinned and every entry exists', () => {
   const entries = [...read('sdk/python/conftest.py').matchAll(/"(tests\/[^"]+)"/g)].map((m) => m[1]);

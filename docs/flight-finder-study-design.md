@@ -357,7 +357,7 @@ self-documenting at the call site.
 **Verdict.** `[ADOPT-ADAPTED]`. Our Python suite already does the equivalent
 with `pytest -m "not live"`, which is the better tool. The transferable part is
 the **granularity**: our stale tests are handled by one blunt
-`collect_ignore_glob` list in `sdk/python/conftest.py` (19 modules) that
+`collect_ignore_glob` list in `sdk/python/conftest.py` (18 modules) that
 **cannot express why each module is parked** at the point of use. The end state
 is a per-module marker (or the suffix convention) so the quarantine burns down
 one entry at a time. Their counter-example is instructive too: the taxonomy is
@@ -572,7 +572,7 @@ All verified in the probe tree; each is a lesson, not a jab:
 | D12 | CHANGELOG with provenance links and an `[Unreleased]` section | `[ADOPT]` | Diverges from theirs deliberately: `[Unreleased]` makes the version check possible. |
 | D13 | Tag↔version binding and required-checks-for-this-SHA at release | `[ADOPT]` | Our docs-claims test covers manifest↔manifest only; the tag is unchecked. |
 | D14 | Fresh-install + packaged-entry-point smoke tests; build identity | `[ADOPT-ADAPTED]` | `pip install` and `npx letsfg-mcp` are unverified claims in our README. |
-| D15 | Per-module test markers replacing the blunt quarantine list | `[ADOPT-ADAPTED]` | End state for the 19 parked modules; `pytest -m` is already better than `skipIf` flags. |
+| D15 | Per-module test markers replacing the blunt quarantine list | `[ADOPT-ADAPTED]` | End state for the 18 parked modules; `pytest -m` is already better than `skipIf` flags. |
 | D16 | 1000-line file cap + ≤10 files/dir pre-commit hooks | `[DEFER]` | Would require refactors forbidden by rule 4; owner decision. Grandfathering design noted. |
 | D17 | Committed screenshot archive under `docs/` | `[REJECT]` | Zero inbound references; undiscoverable. Keep visual evidence in PR bodies. |
 | D18 | Makefile | `[DEFER]` | Ergonomics only. |
