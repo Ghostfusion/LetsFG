@@ -10,6 +10,20 @@ the working agreement, because rule 4 forbids changes that are not defect fixes:
   owner acknowledgement, not silently.
 - **`OWNER`** — a policy/behaviour change; requires an explicit decision.
 - **`DOCS`** — documentation only.
+- **`SPEC`** — the output is a written answer, before any code exists.
+
+**Scope.** The design study separates the **integration surface** (design §0.1:
+search semantics, evidence, price representation, provider abstraction, API
+contracts, agent behaviour, reliability, booking correctness, observability) from
+**repository/process work** found along the way. Only the first is what studying
+`flight-finder` is for; the second stands on its own defects. The register's Type
+column says which is which, and the integration acceptance bar below is written
+against the first group only.
+
+**This study does not itself authorize implementation.** Findings that are
+existing LetsFG defects may be fixed under working-agreement rule 3, and are
+marked `DEFECT`. Everything else — a resolver, an evidence model, a documentation
+contract, a process adoption — needs the owner decision recorded here, per rule 4.
 
 Verified current state of our repo is quoted throughout; commands are given so
 each claim can be re-checked before and after.
@@ -125,53 +139,73 @@ open PR. Owner acknowledgement, then it is a one-file deletion.
 
 Design P9/D8.
 
-**Evidence.** `LETSFG_*` is read at **16+ sites** with no shared resolver: MCP
-`sdk/mcp/src/index.ts:35,36,37,84,105`; JS `sdk/js/src/auth.ts:32,96,118`,
-`cli.ts:34`, `index.ts:354-355`; Python `cli.py:61,70,634,820,900,933`,
-`client.py:346,352`, `local.py:26,55`, `connectors/auth.py:51`. The cost is
-already realised: the MCP server's Developer-API booking path posts to the
-**retired** `/developers/api/v1/bookings/book` while the JS SDK uses
-`/flights/book` (`AGENTS.md` states the retired route answers `410 Gone`).
+**The invariant.** Every public SDK/MCP operation resolves its **lane, base path,
+authentication mechanism and credential source through one canonical resolver**.
+No operation-level code may infer lane configuration: it asks the resolver for an
+operation and receives the URL, headers and credential already chosen. Precedence
+stays `explicit argument → environment → saved config`; what changes is that it is
+written once per SDK instead of re-derived per call site.
+
+**Evidence (measured 2026-10-03, counts not line numbers — the lines move).**
+`LETSFG_*` is read at **28 sites** with no shared resolver: **5** in the MCP
+server, **8** in the JS SDK (10 matches, 2 in doc comments), **15** in the Python
+SDK (17 matches, 2 in docstrings). The lane matrix the resolver owns — one row per
+surface × lane, with the credential each resolves — is in design P9.
+
+**The drift has already happened once, and it is fixed.** The MCP server's
+Developer-API booking path posted to the **retired**
+`/developers/api/v1/bookings/book` (410 since 2026-09-08) while the JS SDK used
+`/flights/book`. **Fixed 2026-10-03** with route tests — and that is the argument
+for this item, not against it: the drift was caught by a test written for *that
+route*, not by anything structural, and the next route will not have one.
 
 **Change.**
-1. One `resolveCredentials()` per SDK (Python, JS, MCP) implementing the
-   documented precedence **flag → env → saved config**, with the lane choice
-   (`bearer` vs `api_key`) derived in exactly one place.
-2. Fix the MCP Developer-API booking path to `/developers/api/v1/flights/book`.
-3. Add a **lane-matrix regression test in each SDK** asserting the literal
-   request paths per lane: PFS search `/api/search`, PFS booking
-   `/api/agent-book`, Dev API search `/developers/api/v1/flights/search`,
-   Dev API booking `/developers/api/v1/flights/book`. Each SDK tests its own
-   table (cross-language sharing is not worth the plumbing).
+1. One `resolveCredentials()`/lane resolver per SDK (Python, JS, MCP) that returns
+   the chosen lane's base path, auth header and credential, plus the precedence
+   above.
+2. Route every operation — search, poll, booking, hotels — through it; no
+   operation reads `LETSFG_*` or hard-codes a lane's path.
+3. Keep the existing lane-route tests (they are the acceptance evidence) and add
+   the per-SDK **lane-matrix** assertion: for each lane, the literal paths the
+   SDK issues for search and booking.
 
-**Acceptance.** The regression test fails on the current MCP build and passes
-after; no SDK reads `LETSFG_*` outside its resolver (assert with a grep-based
-test per package, like the existing "dead-route guards" in
-`sdk/mcp/src/index.test.ts`).
+**Acceptance.** No SDK reads `LETSFG_*` outside its resolver — asserted by a
+per-package grep-style test, as `sdk/mcp/src/index.test.ts` already does for
+dead routes. The lane matrix is complete for all three SDKs (six rows), and each
+row's literal paths are asserted in its own package.
 
-**Verify.** `cd sdk/mcp && npm test`; `cd sdk/js && npm test` (needs
-`npm ci`); `pytest -m "not live"`.
+**Verify.** `cd sdk/mcp && npx tsc --noEmit && npm test`; `cd sdk/js && npx tsc
+--noEmit && npm test`; `cd sdk/python && pytest -m "not live"`.
+
+**Status.** The functional defect is fixed; the structural half is **not done**
+and needs an owner nod (rule 4 — it is a refactor, not a defect fix).
 
 ---
 
-### P1.2 Envelope conformance across the advertised tools `DEFECT`
+### P1.2 Envelope conformance across the advertised tools `DEFECT` — **done 2026-10-03**
 
-Design P7/D3-adjacent. We wrap 4 of 14 advertised MCP tools
-(`search_flights`, `search_hotels`, `get_flight_booking`, `get_hotel_booking`).
+Design P7, D9-adjacent.
 
-**Change.** Extend the MCP tool tests to assert that every tool returning
-search/booking *data* carries `status` + `completeness`, with an explicit,
-reviewed exempt list for tools that genuinely return no data payload
-(`authenticate`, `load_resources`, `get_agent_profile`, `resolve_location`,
-`resolve_hotel_city`). Then wrap whatever the test proves is missing
-(`book_flight`, `book_hotel`, `cancel_hotel_booking`).
+**This item used to say "we wrap 4 of 14 advertised MCP tools". That was stale.**
+The envelope now wraps **11 of the 14**; the other three (`connect_payment`,
+`get_agent_profile`, `load_resources`) are exempt because they answer from local
+data, where an API-outcome status would be a lie.
 
-**Acceptance.** The conformance test enumerates the 14 advertised tools, asserts
-each is either wrapped or on the exempt list, and fails if a new tool is added
-without a decision. This is the "measured adoption ratio" of design P7, applied
-to us: their 71/75 is the model, our 4/14 is the gap.
+**Change (landed).** `sdk/mcp/src/envelope.test.ts` enumerates `tools/list` and
+asserts:
+- every advertised tool is classified as enveloped or exempt — a new tool fails
+  until someone decides which it is;
+- every classified name is still advertised — deleting a tool fails until the
+  entry goes with it;
+- each enveloped tool returns `status` + `completeness` from the vocabulary, and
+  `structuredContent` deep-equal to the text block;
+- each exempt tool answers locally and carries **no** API-outcome status.
 
-**Verify.** `cd sdk/mcp && npx tsc --noEmit && npm test`.
+**Acceptance.** Met. The metric is deliberately structural, not the measured
+adoption ratio the design first proposed: a ratio goes stale with every new tool,
+whereas "every advertised tool is accounted for" cannot.
+
+**Verify.** `cd sdk/mcp && npx tsc --noEmit && npm test` → 67/67.
 
 ---
 
@@ -199,6 +233,53 @@ request quota. Then document the measured contract in `docs/api-*.md` +
 **Acceptance.** Each rate-limited operation in the docs names its measured failure
 behaviour, and the scanner's scheduler encodes only measured behaviour. Full
 question list and probe recipe: trvl study §6 (Q8).
+
+---
+
+### P1.4 The offer evidence ladder, on the existing contract `SPEC` `OWNER`
+
+Design P11/D11. **Promoted by the 2026-10-03 review from "deferred schema idea" to
+a Tier-1 integration requirement**, because it is the one finding in this study
+that changes what a price *means*.
+
+**The invariant.** Two axes that are never read for each other:
+
+```
+price evidence    advertised → observed → quoted → held → ticketed
+search outcome    results | partial | no_results | timeout | rate_limited | failed
+```
+
+with the rules: a retrieval that did not complete cannot promote a price; a price
+that was merely advertised cannot be presented as verified; `freshness=live`
+requires a live fetch; `price_status=verified` requires a verification outcome.
+The booking ladder is a **third** axis — `search result ≠ quote ≠ hold ≠ ticket ≠
+confirmed itinerary (PNR)` — and must not be conflated with either.
+
+**The constraint that decides the design.** This **extends the offer we already
+return; it does not model a second price**. No new field may duplicate
+`price_status`, and nothing may reach `verified` without a verification result.
+The envelope's existing `status`/`completeness`/`coverage_mode`/`empty_reason`/
+`freshness` and the provider contract's `price_status`/`VerificationResult` are
+the vocabulary; this item adds the per-offer grade on top, it does not add an
+enum.
+
+**Change.**
+1. Answer design §4 **Q5** first — which existing offer field carries the grade,
+   and which it must not duplicate — and record the answer here before writing
+   code. This is a specification step, not a coding step.
+2. Add the grade to the offer in `sdk/python/letsfg/models/flights.py` and the JS
+   equivalent, populated from what the lane actually observed.
+3. Assert the two prohibitions: no promotion without a verification result, and no
+   `freshness=live` without a live fetch.
+
+**Acceptance.** A search result cannot be represented as a quoted price, a quoted
+price cannot be represented as verified, and the tests fail if either promotion
+becomes possible. `docs/api-search.md` names the grade and what it does not mean
+(design P17).
+
+**Risk.** This touches the public offer shape on all three surfaces. It is the
+item most likely to accidentally create the parallel price model the study
+forbids, which is why step 1 is a written answer rather than an implementation.
 
 ---
 
@@ -351,6 +432,54 @@ publishing is manual: a build identity that is always `dev` adds noise.
 | Depending on the third-party maintenance action | P1 / D19 | Pin-by-SHA if adopted; verify Python coverage first (P2.3 prerequisite). |
 | Their monorepo scale (Postgres/Redis/Tauri, 232 test files) | §2.6 | Different product shape; nothing to copy. |
 
+## Integration acceptance bar
+
+The review of 2026-10-03 asked for an explicit bar rather than "implement the
+adopted patterns". This is the bar for the **integration surface** (design §0.1) —
+the repository/process items are their own defects and are judged by their own
+tests. Nothing below is claimed as done unless its line says so.
+
+**1. Lane resolution** (D8, P1.1) — *partly done*
+- [x] no operation posts a retired route; the drift that happened is fixed and
+      pinned by route tests (`envelope.test.ts`)
+- [ ] no operation reads `LETSFG_*` outside one resolver per SDK
+- [ ] PFS and Developer lanes are tested on all three surfaces, against the
+      six-row lane matrix
+
+**2. Evidence** (D11, P1.4) — *specified, not implemented*
+- [ ] the price-evidence ladder is machine-readable per offer
+- [ ] a retrieval failure cannot promote a price
+- [ ] a stale observation cannot masquerade as fresh price evidence
+- [ ] the grade extends the existing offer; no field duplicates `price_status`
+
+**3. Search outcomes** (D9, P1.2) — *implemented for MCP*
+- [x] `no_results`, `partial`, `timeout`, `failed`, `rate_limited` are distinct,
+      and `no_results` requires a present-and-empty list with legal coverage
+- [ ] the same discrimination on the Python and JS SDK surfaces
+- [ ] "unsupported route" and "malformed response" are represented in the one
+      vocabulary (not a second enum) — design P10
+
+**4. Agent contract** (D11/P17) — *not scheduled*
+- [ ] every agent-facing operation documents the nine questions: meaning, what it
+      does **not** mean, freshness, retry, idempotency, quota, authority,
+      actionability, repeatability
+- [ ] the booking ladder is stated where booking is documented
+- [ ] at least the load-bearing ones are asserted, not just written
+
+**5. Distribution** (D14/P3.2) — *not scheduled*
+- [ ] fresh-venv `pip install` runs a real search
+- [ ] fresh `npm install` imports and runs
+- [ ] `npx letsfg-mcp` completes `initialize` → `tools/list` → one tool call
+- [ ] upgrade from a pinned older release, not just a fresh install
+
+**6. Build identity** (D14) — *not scheduled*
+- [ ] the packaged artifact reports its version **and the 40-hex commit it was
+      built from**, and the SHA identifies that exact revision
+
+**Not part of this bar:** CI hardening, Dependabot, PR/issue templates, the
+changelog, the dead-code ledger, file-size caps, the Makefile or the screenshot
+archive. Those are repository work (design §0.1) with their own acceptance.
+
 ## Traceability
 
 | Design pattern | Decision | Implementation |
@@ -361,16 +490,16 @@ publishing is manual: a build identity that is always `dev` adds noise.
 | P4 Dependabot policy | D5 | P2.2 |
 | P5 PR template | D6 | P2.1 |
 | P6 issue template | D7 | P2.1 |
-| P7 one envelope, measured | — | P1.2 |
+| P7 one envelope, measured | — | P1.2 — **done**: the invariant is structural (every advertised tool classified), not a ratio |
 | P8 failure direction | D10 | P1.3 |
-| P9 credential resolver | D8 | P1.1 |
-| P10 positive-evidence flags | D9 | P1.2 (same principle; already implemented for the 4 wrapped tools) |
-| P11 evidence grade for fares | — | Deferred; recorded in the design doc, not scheduled |
+| P9 credential resolver | D8 | P1.1 (drift fixed; resolver outstanding) |
+| P10 positive-evidence flags | D9 | P1.2 (envelope rule, done) + acceptance bar §3 (SDK surfaces outstanding) |
+| P11 evidence grade for fares | D11 | **P1.4** — promoted to Tier 1 by the 2026-10-03 review; specification first, no parallel price model |
 | P12 test taxonomy | D15 | P2.4 / quarantine burn-down (tracked in the `trvl` plan; **cleared 2026-10-03** — the 18 modules were deleted, not rewritten) |
 | P13 verify the process | D3/D13 | P0.1 (test), P3.1 (tag binding) |
-| P14 publication integrity | D13/D14 | P0.2 (blocked part), P3.1, P3.2, P3.3 |
-| P16 CHANGELOG | D12 | P0.2 |
-| P17 semantics agents get wrong | D11 | P1.3 documentation half + a docs assertion |
+| P14 publication integrity | D13/D14 | P3.1, P3.2, P3.3; acceptance bar §§5–6 |
+| P16 CHANGELOG | D12 | P0.2 — **done 2026-10-03** |
+| P17 semantics agents get wrong | D11 | Acceptance bar §4; P1.4 step 3 covers the search half |
 | P19 screenshot archive | D17 | Rejected (P4) |
 
 ## Resolution log — 2026-10-03
@@ -385,7 +514,7 @@ under working-agreement rule 3 (fix on the spot; record genuine deferrals).
 | P1.1 lane routes + credential resolver | **Partly done** | The functional defect is fixed: MCP `book_flight` (API-key lane) now posts to `/developers/api/v1/flights/book`, and `get_flight_booking` polls `/developers/api/v1/flights/bookings/{id}` on that lane instead of the PFS route. Both pinned by a new test that records the paths the server actually calls. The single-resolver refactor of all 16 `LETSFG_*` read sites is **not** done — it is structural, and the drift it prevents is now covered by the route tests instead. |
 | P1.2 envelope conformance | **Done** | 11 of 14 advertised tools return `status` + `completeness` on API results; the 3 exceptions (`connect_payment`, `get_agent_profile` on the PFS lane, `load_resources`) are local refusals/static text and are asserted as such. The test enumerates `tools/list`, so a new tool must be classified. |
 | P1.3 limiter failure direction | **Decided 2026-10-03 — measure, don't guess** | Owner decision (trvl study §6, Q8): the failure contract must be established by a controlled live probe (status, `Retry-After`, whether a rejected request consumes quota, limit scope, concurrency, repeat violations, per-endpoint consistency, polling quota). It is the **P0 blocker** for the fare scanner's scheduler; until measured, `rate_limit_failure_behavior = UNKNOWN`. |
-| P0.2 `CHANGELOG.md` | **Not done** | Not a defect (absence of a file), and rule 4 scopes this pass to defect fixes. It remains the top documentation item, and it unblocks the deferred version↔changelog assertion. |
+| P0.2 `CHANGELOG.md` | **Done 2026-10-03** | `CHANGELOG.md` added with an `[Unreleased]` section, provenance on every bullet, and three released sections verified against PyPI and the npm registry. `test/docs-claims.test.mjs` now asserts the newest released section equals `pyproject.toml` and names the current npm versions — the assertion the trvl plan's P1.3 had deferred. |
 | Further defects fixed this pass (found while working) | **Done** | `sdk/python/letsfg/models.py` (unreachable behind the `models/` package) and `system_info.py` (stub for a removed architecture) deleted; `config.py` made the live resolver; MCP `VERSION` corrected from `1.3.1` to the package version and now asserted; committed `*.tgz` build artifacts deleted and `*.tgz` ignored; `sdk/python/letsfg/models/flights.py` docstring route corrected; `SECURITY.md` version table + credential model corrected and asserted; `docs/TESTING.md` rewritten around what actually runs here; `CONTRIBUTING.md` commands corrected; Playwright and its system libraries removed from all three container files with the dead knobs. |
 
 **Still open, deliberately:** P2.1–P2.4 and P3.1–P3.3 are `OWNER` items (process
@@ -393,25 +522,50 @@ policy, tagging convention, publishing); P3.1's tag binding has no prerequisite
 yet (`git tag | wc -l` → 0).
 
 ```bash
-node --test test/docs-claims.test.mjs test/workflow-hygiene.test.mjs   # 9/9, 5/5
-cd sdk/mcp && npx tsc --noEmit && npm test                            # 45/45
+node --test test/docs-claims.test.mjs test/workflow-hygiene.test.mjs   # 19/19
+cd sdk/mcp && npx tsc --noEmit && npm test                            # 67/67
 cd sdk/js  && npx tsc --noEmit && npm test                            # 39/39
-cd sdk/python && pytest -m "not live"                                 # 103 passed, 2 skipped
+cd sdk/python && python -m pytest -m "not live"                       # 159 passed
+node test/model-test.js                                              # 537/537
+python -m mkdocs build                                                # exit 0
 ```
 
 
 ## Suggested order (remaining work)
 
-1. **P0.2** — `CHANGELOG.md` (unblocks the deferred `trvl` P1.3 assertion; the
-   format is specified in the design study P16).
-2. **P1.1 (rest)** — collapse the 16 `LETSFG_*` read sites into one resolver per
-   SDK. Structural, so it needs an owner nod; the drift it would prevent is
-   already covered by the lane-route tests.
-3. **P1.3** — establish the limiter's failure contract by measurement (the Q8 probe),
-   then document it. Nothing downstream may assume it beforehand.
-4. Then the `OWNER` items in the order the owner prefers; **P2.1** (PR/issue
-   templates) and **P2.2** (Dependabot ecosystems) are the cheapest process wins,
-   and **D4** (secret scanning) needs the placeholder-hygiene sweep first.
+Design §5 fixes the tiers; numerical order is not implementation order. The
+integration surface comes first, because it is the reason for the study.
+
+**Tier 1 — flight-platform correctness (the integration surface)**
+
+1. **P1.4 §1** — answer design §4 **Q5** (which existing offer field carries the
+   evidence grade) *before* any code. It is a written answer, and it is what stops
+   a second parallel price model.
+2. **P1.1 (rest)** — one lane/credential resolver per SDK, with the six-row lane
+   matrix asserted per package. Structural, so it needs an owner nod (rule 4).
+3. **P1.4 §2–3** — the grade on the offer, with the two promotions prohibited.
+4. **P1.3** — establish the limiter's scope and failure direction by measurement
+   (trvl §6 Q8), then document it. Nothing downstream may assume it beforehand.
+5. **P2.1** — PR/issue templates with the surface × lane × operation enums; the
+   cheapest way to make every future report triageable.
+
+**Tier 2 — distribution and API correctness**
+
+6. **P3.2** — the install/packaged-entry-point matrix (acceptance bar §5).
+7. **P3.1** — tag ↔ version ↔ commit binding; blocked until there is a tagging
+   convention (`git tag | wc -l` → 0).
+8. **P3.3** — build identity carrying the commit SHA (acceptance bar §6).
+
+**Tier 3 — security and repository hygiene**
+
+9. **D4** — the placeholder-hygiene sweep first, then secret scanning.
+10. **P2.2** — Dependabot for npm and pip.
+11. **P2.3** — the dead-code ledger *policy* (D1); the tool stays deferred (D19).
+
+**Tier 4 — optional**
+
+12. **P2.4** — architecture hooks (D16), deferred: it would require refactors that
+    rule 4 forbids without an owner request.
 
 ## Verification for the whole set
 
