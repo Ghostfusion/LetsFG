@@ -311,10 +311,11 @@ transport rewrite was survivable.
 
 ### 5.2 `[DEFER]` — real, but not now, and not ours to decide
 
-**P9. fli as a fourth data source** (after the two first-party lanes). Technically
-attractive, free, MIT; but it is *owned acquisition of an
-unowned interface*, which is precisely the ownership question of D10. It needs the
-owner, and it needs the P0 live probe first (§12).
+**P9. fli as a fourth data source** — **REJECTED 2026-10-03** when F2 declined owned
+acquisition. Technically attractive, free, MIT; but it is *owned acquisition of an
+unowned interface*, which was exactly the ownership question of D10, and the owner
+answered it no. The reasoning above is kept rather than deleted, because it is the
+assessment any future candidate of the same shape would have to displace.
 
 **P10. The `tfs` encoder as a dependency.** MIT permits vendoring; the encoder is the
 durable part (§3). But it encodes *Google's* schema, so it inherits Google's
@@ -595,13 +596,13 @@ observed window, owned by Google, with no notice period.
 | D3 | Do **not** expose fli's MCP/CLI as product surface (P13) | DECIDED |
 | D4 | Any provider adoption carries the `coverage_mode` × `result_state` pair and its legal combinations (§6.2); no provider inherits an implied total (P14) | DECIDED |
 | D5 | The **sweep breaker** (P2) and **loaded-empty vs never-loaded** (P1) are adopted as design requirements, but as **two** breakers — coverage and provider health (§6.4/§6.5) — independent of whether fli is ever used | DECIDED |
-| D6 | fli as a **fourth, optional, owner-gated** provider lane — gated on the capability declaration (§6.3) and all ten admission criteria (§6.6), so the decision is a checklist rather than a judgement call | **OPEN — owner** (D10 ownership) |
-| D7 | Dependency boundary, three options: **(A)** depend on `flights`; **(B)** vendor only the required encoder subset under MIT; **(C)** reimplement the minimal encoding behind our own contract. **In all three, fli's internal types never appear in our provider contract** — the boundary is LetsFG → our provider interface → adapter → fli, never LetsFG → `flights.SearchFlights` → everything fli | **OPEN — owner**, gated on D6 |
+| D6 | fli as a **fourth, optional, owner-gated** provider lane — gated on the capability declaration (§6.3) and all ten admission criteria (§6.6), so the decision is a checklist rather than a judgement call | **RESOLVED — NO (2026-10-03).** F2 declined owned acquisition, so P0 never ran and fli is **not admitted**. The gate itself stands: it is what a future candidate would have to pass |
+| D7 | Dependency boundary, three options: **(A)** depend on `flights`; **(B)** vendor only the required encoder subset under MIT; **(C)** reimplement the minimal encoding behind our own contract. **In all three, fli's internal types never appear in our provider contract** — the boundary is LetsFG → our provider interface → adapter → fli, never LetsFG → `flights.SearchFlights` → everything fli | **RESOLVED — (C) (2026-10-03)**, recorded while the lane is not admitted: no dependency, no name-collision hazard, and the encoder is ours when Google moves the interface. Inert until D6 could ever be yes |
 | D8 | No adoption before the P0 probe, which must be **acceptance-test-shaped** (§10, implementation plan §2): nothing here is measured from *our* network, region or account, and **no production sweep may rely on a range cap until the runtime-observed cap is established** (§4.9) | **DECIDED (gating)** |
 | D9 | Never make fli's thinning-with-children behaviour a silent coverage loss: a party with children/infants must produce `partial`, not `no_results` — and `no_results` is prohibited at scanner level whenever coverage is degraded (§6.2) | DECIDED |
 | D10 | The repository's own drifts (§4.9) are recorded as evidence *for* our `docs-claims` guard, not as a criticism to act on | DECIDED |
-| D11 | **Provider health and fallback:** does a fli failure automatically permit fallback to our own PFS lane — the only fallback that exists, the rented lane having been declined on 2026-10-03 — and which failure classes **quarantine** a provider versus trigger an ordinary per-search retry? (§6.5) | **OPEN — owner** |
-| D12 | **May an observation with `coverage_mode = partial` participate in an alert?** Recommendation: **no**, unless the alert itself states that its basis is partial coverage | **OPEN — owner** |
+| D11 | **Provider health and fallback:** does a fli failure automatically permit fallback to our own PFS lane — the only fallback that exists, the rented lane having been declined on 2026-10-03 — and which failure classes **quarantine** a provider versus trigger an ordinary per-search retry? (§6.5) | **RESOLVED — no automatic fallback (2026-10-03).** A failing provider surfaces as `DEGRADED` and the run reports reduced coverage; silently substituting another lane would change the evidence basis of the comparison, which is what the coverage contract exists to prevent |
+| D12 | **May an observation with `coverage_mode = partial` participate in an alert?** Recommendation: **no**, unless the alert itself states that its basis is partial coverage | **RESOLVED — no (2026-10-03).** An alert asserts a conclusion about the market, and partial coverage cannot support it; the qualified variant was rejected because the qualification would have to survive into every delivery surface |
 | D13 | Provider failure classification, concurrency limits, retry policy and sweep characteristics belong to the **provider** contract; the planner owns only the global budget and safety limits (§6.4) — fli's `(5 + workers) × 3` is never encoded as a scanner rule | DECIDED |
 | D14 | The capability declaration (§6.3) and the admission gate (§6.6) are the objective prerequisites for D6; a provider that fails any of the ten is not admitted, regardless of how attractive its cost is | DECIDED |
 
@@ -650,19 +651,26 @@ F2 = YES ──▶ F1 / P0 acceptance protocol ──▶ PASS → fli may be adm
     └ F2 = NO ──▶ no probe. Do not run P0.
 ```
 
+> **ANSWERED 2026-10-03: F2 = NO.** The owner declined owned acquisition. **No request
+> was ever made to Google**, P0 will not run, and fli is **not admitted** as a provider
+> (D6 resolved **no**). The retained value below is what the study was for; the
+> acquisition mechanism is rejected, on the same footing as the rented lane.
+>
+> The decision was taken with the **hedged alternative already declined** (SerpApi, its
+> design §16 D1) — so it was made unhedged, which is the honest form of the question:
+> there was no vendor left to buy the legal posture from, and "no" means this fare
+> universe is simply not observed by us rather than rented instead.
+
 The "NO" branch forbids the probe for a reason that is not procedural tidiness:
 **the probe is itself an exercise of the owned acquisition that F2 exists to
 authorize.** Querying Google's undocumented interface from our IP *is* the act in
 question — measuring it before deciding whether we are willing to do it would decide
-it by doing it.
+it by doing it. That is why the answer had to come first, and why nothing was measured.
 
-So **F2 is a business, legal and ownership decision, not a technical one.** The
-technical case for probing is already made by this study; the only open question is
-whether we are willing to own the consequences of querying an undocumented Google
-interface directly (§6.6, §9). Its counterfactual has since been removed: **SerpApi was
-declined on 2026-10-03** (its design §16 D1), so the legal posture cannot be bought from
-a vendor at any price. F2 is now unhedged in the strongest sense — and **no** means that
-fare universe is simply not observed by us.
+F2 was a **business, legal and ownership decision, not a technical one.** The technical
+case for probing was already made by this study; the open question was whether we were
+willing to own the consequences of querying an undocumented Google interface directly
+(§6.6, §9), and the answer is that we are not.
 
 **If F2 is NO, the study has still paid for itself** — nothing here is wasted:
 
@@ -672,9 +680,12 @@ retained   P1 contracts · failure taxonomy · the two breakers · coverage sema
 rejected   fli as an acquisition mechanism
 ```
 
-**Once F2 is YES, this study is closed.** No further research expands it, no part of
-it is reopened, and the next artifact is the narrowly scoped P0 acceptance protocol
-([`fli-study-implementation.md`](fli-study-implementation.md) §2).
+**F2 = NO closes this study**, and nothing in it is reopened by that: the acquisition
+mechanism is rejected, P0 never runs, and the P2 provider work is withdrawn. Should the
+question ever be revisited, it starts from the answers already recorded here — D6 (**not
+admitted**, and what admission would require), D7 (**C**: reimplement the minimal
+encoding behind our own contract), D11 (**no automatic fallback**) and D12 (**partial
+coverage may not alert**) — rather than from a blank page.
 
 | Phase | Content | Gate |
 |---|---|---|

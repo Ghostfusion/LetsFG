@@ -1,8 +1,15 @@
 # fli Study — Implementation Plan
 
-**Status:** plan only. **Nothing in this document has been implemented**, and nothing
-was installed, run, or requested from Google during the study. Code items are gated on
-an owner decision — adding a provider is new scope under the working agreement.
+**Status: CLOSED — owner decision, 2026-10-03: F2 = NO.** Owned acquisition was
+declined, so **nothing in this document will be implemented**: P0 never runs, P2 is
+withdrawn, and fli is not admitted as a provider (design D6). Nothing was installed,
+run, or requested from Google during the study, and nothing ever will be — that is the
+whole point of the answer having come first.
+
+The plan is retained as the record of two things: what the acceptance protocol *would*
+have measured, and the decisions already taken alongside the refusal (D7 = **C**, D11 =
+**no automatic fallback**, D12 = **partial coverage may not alert**) — which is where a
+future candidate of the same shape would have to start.
 
 Companion: [`fli-study-design.md`](fli-study-design.md). Section references in `§`
 point there.
@@ -36,6 +43,9 @@ D6; and a third dependency option was added to D7.
 > Executing it *is* the owned acquisition F2 authorizes: querying Google's
 > undocumented interface from our IP is the act in question, so measuring it before
 > deciding whether we want to do it would decide it by doing it (design §11).
+>
+> **Not executed — F2 was answered NO on 2026-10-03.** The gate held exactly as
+> written: no request was made, so this is now a specification rather than a plan.
 
 The question P0 exists to answer, in one line:
 
@@ -178,6 +188,11 @@ A fli-backed **observation** provider behind the existing provider contract:
 capability-declared, coverage-aware, independently disableable, and never authoritative
 for booking or baseline inference (design §6.5/§6.6).
 
+> **Withdrawn 2026-10-03.** D6 is resolved no (F2 declined ownership), so no adapter is
+> built and none of P2.1–P2.5 is owed. The acceptance criteria below are kept because
+> they are the checklist *any* future provider would be held to — the admission gate in
+> particular (§6.6), which is the part of this study that outlives it.
+
 ### P2.1 The admission gate is the acceptance criterion `ACCEPT`
 
 All ten criteria in design §6.6, verified against P0 evidence. **A provider that fails
@@ -262,12 +277,12 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
 
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
-| F1 | **Run the P0 acceptance protocol** against Google under our IP — including whether to risk the sustained-load probe (§2.7) | All of P0 | §2 here, design §10 |
-| F2 | **Is *owned* acquisition acceptable at all?** **A business/legal/ownership decision, not a technical one**, and it must be answered **before any request is made to Google**. It is now unhedged in the strongest sense: the rented alternative, SerpApi, was **declined by the owner on 2026-10-03** (its design §16 D1), so there is no vendor to buy the legal posture from at any price. YES authorizes F1/P0; **NO forbids the probe entirely** — because running it *is* the acquisition being decided | F1, D6, all of P2 | design §6.6, §9, §11 |
-| F3 | **The dependency boundary** — depend / vendor a subset / reimplement (D7 A/B/C) | P2.5 | design D7 |
+| F1 | ~~**Run the P0 acceptance protocol** against Google under our IP~~ — **closed 2026-10-03**: F2 was answered no, so the protocol never runs | ~~All of P0~~ — closed | §2 here, design §10 |
+| F2 | **Is *owned* acquisition acceptable at all?** **A business/legal/ownership decision, not a technical one**, and it had to be answered **before any request was made to Google** — because running the probe *is* the acquisition being decided. It was also unhedged: the rented alternative (SerpApi) was declined the same day | **ANSWERED 2026-10-03: NO.** Owned acquisition is declined. No request was made; P0 does not run; fli is not admitted (design D6); P2 is withdrawn | F1, D6, all of P2 | design §6.6, §9, §11 |
+| F3 | **The dependency boundary** — depend / vendor a subset / reimplement (D7 A/B/C) | **ANSWERED 2026-10-03: C** — reimplement the minimal encoding behind our own contract. No dependency, no `fli`/`flights` name-collision hazard, and fli's internal types never cross the boundary. Inert while D6 is no; recorded because it is the boundary to use if this is ever revisited | P2.5 | design D7 |
 | F4 | ~~Whether to adopt the patterns now~~ — **answered 2026-10-03: yes** | — | design D1/D5 |
-| F5 | **Provider health and fallback** (D11): does fli failure automatically permit fallback to PFS, and which classes quarantine versus retry per search? | P2.3 | design §6.5, D11 |
-| F6 | **May partial-coverage observations generate alerts** (D12)? Recommendation: no, unless the alert discloses partial coverage | P2.4 | design §6.2, D12 |
+| F5 | **Provider health and fallback** (D11): does fli failure automatically permit fallback to PFS, and which classes quarantine versus retry per search? | **ANSWERED 2026-10-03: no automatic fallback.** A failing provider surfaces as `DEGRADED` and the run reports reduced coverage; silently substituting another lane would change the evidence basis of the comparison, which the coverage contract exists to prevent | P2.3 | design §6.5, D11 |
+| F6 | **May partial-coverage observations generate alerts** (D12)? | **ANSWERED 2026-10-03: no.** An alert asserts a conclusion about the market and partial coverage cannot support it. The "if the alert discloses partial coverage" variant was rejected: the qualification would have to survive intact into every delivery surface, and nothing enforces that | P2.4 | design §6.2, D12 |
 
 ---
 
@@ -294,9 +309,9 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
 | Item | Status | Evidence |
 |---|---|---|
 | Study documents (incl. review #1 revision) | **Done** | This plan and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
-| P0 acceptance protocol | **Not started** | Needs F1; **no request has been made to Google** |
+| P0 acceptance protocol | **Cancelled — never ran** | F2 was answered no (2026-10-03) **before any request was made to Google**, which is the gate working as designed. The protocol survives as specification |
 | P1.1–P1.4 pattern adoption | **Done (docs) 2026-10-03** | Empty-reason taxonomy in `trvl-study-design.md` §2.1; cost model, two breakers and accounting in scanner §6.1/§6.7; absence and link rules in scanner §8; decision 8 of scanner §12. Guards deliberately not written — no behaviour exists to test |
-| P2.1–P2.5 provider / health / dependency | **Not started** | Needs F2, F5, F6 (and F3 for dependency) |
+| P2.1–P2.5 provider / health / dependency | **Withdrawn** | D6 resolved no with F2; the answers to D7/D11/D12 are recorded for any future candidate |
 | P3 scanner wiring | **Out of scope** | Other repository |
 | O-1, O-2 | **Deferred** | Recorded above with reasons |
 
@@ -305,17 +320,9 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
 ## 10. Order of work
 
 1. ~~**F4** — adopt the patterns now.~~ **Answered yes, 2026-10-03; landed.**
-2. **F2 — the gate, and it comes before every other step in this list.** It is a
-   business/legal/ownership decision (are we willing to own the consequences of
-   querying Google's undocumented interface?), not a technical one: the technical case
-   for probing is already made by the study. **YES → F1/P0. NO → P0 is not run**, and
-   the retained value is the contracts, taxonomy, breakers, coverage semantics, cost
-   model and admission gate (design §11).
-3. **F5/F6** — health/fallback routing, and whether partial coverage may alert. Product
-   decisions, needed before P2 but not before P0.
-4. **F1 → P0** — only under F2 = YES: run the acceptance protocol from our own network.
-   The repository's own history (design §3) is a demonstration of what happens when an
-   undocumented interface moves. **Once F2 is yes, do not reopen the study** — go
-   straight to the protocol.
-5. **P2** only after P0 passes, only behind the existing provider contract, and only
-   past the admission gate.
+2. ~~**F2 — the gate**~~ **Answered NO, 2026-10-03.** Ownership was declined, so the
+   chain stops here: no F1, no P0, no P2.
+3. ~~**F5/F6**~~ **Answered, 2026-10-03** — no automatic fallback; partial coverage may
+   not alert. Recorded for the contract, not for an implementation that is owed.
+4. ~~**P2**~~ **Withdrawn** with D6.
+5. **O-1/O-2** remain deferred observations, unchanged by the decision.
