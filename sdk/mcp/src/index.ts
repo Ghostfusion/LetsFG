@@ -27,12 +27,41 @@ import {
   envelopeForError,
   firstListLength,
   parseRetryAfterMs,
-  withEnvelope,
+  withEnvelope as withEnvelopeBase,
   type Envelope,
 } from './envelope';
 
 /** The envelope for an API call that answered with a single object (a booking, a profile). */
 const OK_COMPLETE: Envelope = { status: 'ok', completeness: 'complete' };
+
+/**
+ * Observation stamp for a response this server just fetched.
+ *
+ * letsfg.co exposes no observation timestamp of its own, so the honest basis is
+ * `client_receipt` — never `provider`, which is reserved for a time the upstream
+ * stamped *for the data* (`trvl-study-design.md` §2.1). `freshness` is `live`
+ * because every tool call here fetches live; the retained-observation staleness
+ * classes belong to the scanner's observation store, not to this wire contract.
+ */
+function observedNow(): Pick<Envelope, 'observed_at' | 'observed_at_basis' | 'freshness'> {
+  return {
+    observed_at: new Date().toISOString(),
+    observed_at_basis: 'client_receipt',
+    freshness: 'live',
+  };
+}
+
+/**
+ * `withEnvelope`, with the receipt stamp applied. Wrapped rather than repeated at
+ * each call site so that no response path can forget it — the import is aliased
+ * above precisely so this name covers every existing call.
+ */
+function withEnvelope(
+  payload: Record<string, unknown>,
+  env: Envelope,
+): Record<string, unknown> {
+  return withEnvelopeBase(payload, { ...env, ...observedNow() });
+}
 
 /**
  * Wrap a single-object API outcome. Only for payloads that carry no result list:
@@ -441,7 +470,14 @@ const RESOURCES = [
 
 // ── Tool Definitions ────────────────────────────────────────────────────
 
-const TOOLS = [
+interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+}
+
+const TOOLS: ToolDefinition[] = [
   {
     name: 'search_flights',
     description:
@@ -779,6 +815,71 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
 ];
+
+/**
+ * Every advertised tool returns the same envelope (`envelope.ts`) in the text
+ * block and in `structuredContent`, then the tool's own payload.
+ *
+ * The envelope half is specified field by field, because it is the part a caller
+ * must branch on before saying anything is empty. The payload half is left open
+ * (`additionalProperties: true`): those fields are the API's own and are
+ * documented per tool, and restating them here would create a second contract
+ * that drifts. Per-field payload schemas land with the content-separation stage,
+ * once their shapes are frozen.
+ *
+ * Attached in a loop rather than repeated in all fourteen entries so the schema
+ * and the envelope module cannot diverge.
+ */
+const ENVELOPE_OUTPUT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  description:
+    'The result envelope, followed by the tool payload. Read `status`, `completeness` and the '
+    + 'coverage pair before telling the user anything is empty.',
+  required: ['status', 'completeness'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['ok', 'no_results', 'timeout', 'rate_limited', 'auth_required', 'failed'],
+      description:
+        'ok = the call completed. no_results = a source-reported empty under complete coverage. '
+        + 'Any other value is NOT an empty market.',
+    },
+    completeness: {
+      type: 'string',
+      enum: ['complete', 'partial', 'blocked'],
+      description: 'blocked means the source did not answer — never report that as "nothing found".',
+    },
+    envelope_status: {
+      type: 'string',
+      description: 'Present when the payload carries its own `status`; this is the envelope verdict beside it.',
+    },
+    fix_hint_code: { type: 'string' },
+    retry_after_ms: { type: 'integer' },
+    note: {
+      type: 'string',
+      description: 'Why the verdict is not complete, in plain language. Repeat its caveat to the user.',
+    },
+    empty_reason: {
+      type: 'string',
+      enum: ['provider_empty', 'not_loaded', 'filtered_out'],
+      description: 'Only provider_empty can be "no flights". filtered_out is evidence about our filter.',
+    },
+    coverage_mode: { type: 'string', enum: ['complete', 'partial', 'unavailable'] },
+    result_state: { type: 'string', enum: ['results', 'confirmed_empty', 'unavailable'] },
+    observed_at: { type: 'string', description: 'ISO-8601. When the returned data was observed.' },
+    observed_at_basis: {
+      type: 'string',
+      enum: ['provider', 'provider_fetch', 'client_receipt'],
+      description: 'client_receipt means we read it now — never present it as a provider-stamped time.',
+    },
+    freshness: { type: 'string', enum: ['live', 'unknown'] },
+  },
+  additionalProperties: true,
+};
+
+for (const tool of TOOLS) {
+  tool.outputSchema = ENVELOPE_OUTPUT_SCHEMA;
+}
 
 // ── Tool Handlers ───────────────────────────────────────────────────────
 
@@ -1263,6 +1364,31 @@ function send(msg: Record<string, unknown>) {
   process.stdout.write(JSON.stringify(msg) + '\n');
 }
 
+/**
+ * `structuredContent` for a tool result.
+ *
+ * The text block is authoritative — `callTool` returns the serialisation of what
+ * it built — so the structured form is that same payload parsed, never a second
+ * construction of it that could disagree. A non-JSON answer path (the retired
+ * name, an unexpected throw) leaves the text block alone rather than inventing a
+ * structure for it.
+ *
+ * The parse is deliberate for now: making `callTool` return the object instead of
+ * its serialisation touches every response path in the file, and that refactor
+ * belongs with content separation, where the text block stops being the JSON.
+ */
+function structuredFor(text: string): { structuredContent?: Record<string, unknown> } {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { structuredContent: parsed as Record<string, unknown> };
+    }
+  } catch {
+    /* not JSON — the text block stands alone */
+  }
+  return {};
+}
+
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
 rl.on('line', async (line) => {
@@ -1318,7 +1444,11 @@ rl.on('line', async (line) => {
 
       try {
         const text = await callTool(toolName, toolArgs);
-        send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } });
+        send({
+          jsonrpc: '2.0',
+          id,
+          result: { content: [{ type: 'text', text }], ...structuredFor(text) },
+        });
       } catch (e) {
         send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Error: ${e}` }], isError: true } });
       }

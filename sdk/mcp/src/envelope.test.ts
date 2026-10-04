@@ -16,9 +16,15 @@ import { join, dirname } from 'node:path';
 import {
   envelopeForData,
   envelopeForError,
+  envelopeViolations,
   firstListLength,
+  isLegalCoverage,
+  legalCoverage,
+  noResultsJustified,
   parseRetryAfterMs,
   withEnvelope,
+  type Envelope,
+  type LegalCoverage,
 } from './envelope.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -131,6 +137,123 @@ describe('envelope — firstListLength', () => {
   });
   it('returns null when no list is present (unknown, not empty)', () => {
     assert.equal(firstListLength({}, ['hotels']), null);
+  });
+});
+
+// ── Coverage pair, emptiness, and the observation stamp (trvl-study-design §2.1) ──
+
+describe('envelope — legalCoverage', () => {
+  it('returns every legal cell', () => {
+    assert.deepEqual(legalCoverage('complete', 'results'), { coverage_mode: 'complete', result_state: 'results' });
+    assert.deepEqual(legalCoverage('partial', 'confirmed_empty'), { coverage_mode: 'partial', result_state: 'confirmed_empty' });
+    assert.deepEqual(legalCoverage('unavailable', 'unavailable'), { coverage_mode: 'unavailable', result_state: 'unavailable' });
+  });
+
+  it('rejects both illegal cells at runtime, for dynamic payloads', () => {
+    for (const state of ['results', 'confirmed_empty'] as const) {
+      assert.throws(() => legalCoverage('unavailable', state), /no usable evidence cannot carry a result/);
+    }
+    for (const mode of ['complete', 'partial'] as const) {
+      assert.throws(() => legalCoverage(mode, 'unavailable'), /contradictory/);
+    }
+  });
+
+  it('leaves the illegal cells unrepresentable to the type checker', () => {
+    // `npx tsc --noEmit` runs in CI. If either literal below ever compiles, the
+    // build fails — that is the guard, and the reason the pair is a union.
+    // @ts-expect-error no usable evidence cannot carry a result
+    const noEvidenceWithResult: LegalCoverage = { coverage_mode: 'unavailable', result_state: 'results' };
+    // @ts-expect-error a searched scope cannot be unavailable
+    const searchedButUnavailable: LegalCoverage = { coverage_mode: 'complete', result_state: 'unavailable' };
+
+    // The runtime validator catches what the compiler refuses to name, so a
+    // payload arriving from elsewhere cannot smuggle either cell through.
+    const asEnvelope = (cell: unknown): Envelope => ({
+      status: 'ok', completeness: 'partial', ...(cell as Record<string, unknown>),
+    });
+    assert.deepEqual(envelopeViolations(asEnvelope(noEvidenceWithResult)), ['illegal coverage cell {unavailable, results}']);
+    assert.deepEqual(envelopeViolations(asEnvelope(searchedButUnavailable)), ['illegal coverage cell {complete, unavailable}']);
+  });
+
+  it('agrees with isLegalCoverage across the whole 3x3 grid', () => {
+    for (const mode of ['complete', 'partial', 'unavailable'] as const) {
+      for (const state of ['results', 'confirmed_empty', 'unavailable'] as const) {
+        const env: Envelope = { status: 'ok', completeness: 'partial', coverage_mode: mode, result_state: state };
+        const coverageViolations = envelopeViolations(env).filter((v) => v.startsWith('illegal coverage cell'));
+        assert.equal(coverageViolations.length, isLegalCoverage(mode, state) ? 0 : 1, `{${mode}, ${state}}`);
+      }
+    }
+  });
+});
+
+describe('envelope — no_results is justified by exactly one combination', () => {
+  it('accepts provider_empty under complete coverage', () => {
+    assert.equal(noResultsJustified(envelopeForData(0)), true);
+    assert.deepEqual(envelopeViolations(envelopeForData(0)), []);
+  });
+
+  it('rejects an empty claimed while coverage is degraded', () => {
+    const env: Envelope = { ...envelopeForData(0), coverage_mode: 'partial' };
+    assert.equal(noResultsJustified(env), false, '{no_results, coverage_mode: partial} asserts an absence we cannot support');
+    assert.deepEqual(envelopeViolations(env), [
+      'no_results claimed without provider_empty under complete coverage (empty_reason=provider_empty, coverage_mode=partial)',
+    ]);
+  });
+
+  it('rejects a bare no_results with no reason attached', () => {
+    const env: Envelope = { status: 'no_results', completeness: 'complete' };
+    assert.equal(noResultsJustified(env), false);
+    assert.equal(envelopeViolations(env).length, 1, 'an unexplained no_results is itself a violation');
+  });
+});
+
+describe('envelope — a degraded empty is never "no flights"', () => {
+  it('reports zero rows under partial coverage as ok / partial / confirmed_empty', () => {
+    const env = envelopeForData(0, { coverage: 'partial' });
+    assert.equal(env.status, 'ok', 'never no_results while coverage is degraded');
+    assert.equal(env.completeness, 'partial');
+    assert.equal(env.coverage_mode, 'partial');
+    assert.equal(env.result_state, 'confirmed_empty');
+    assert.equal(env.empty_reason, 'provider_empty');
+    assert.deepEqual(envelopeViolations(env), []);
+  });
+
+  it('says so in the note, because this is the false-"no flights" failure mode', () => {
+    const out = withEnvelope({ offers: [] }, envelopeForData(0, { coverage: 'partial' }));
+    assert.match(String(out.note), /NOT evidence/);
+    assert.match(String(out.note), /unserved/);
+  });
+
+  it('keeps the complete-coverage path unchanged', () => {
+    const env = envelopeForData(0);
+    assert.equal(env.status, 'no_results');
+    assert.equal(env.completeness, 'complete');
+    assert.equal(env.result_state, 'confirmed_empty');
+  });
+});
+
+describe('envelope — a failure never carries a result', () => {
+  it('stamps every error unavailable / not_loaded', () => {
+    for (const response of [
+      { status_code: 401, detail: 'no session' },
+      { status_code: 429, detail: 'slow down' },
+      { status_code: 504, detail: 'gateway' },
+      { status_code: 503, detail: 'down' },
+      { error: true, detail: 'fetch failed' },
+    ]) {
+      const env = envelopeForError(response);
+      const label = JSON.stringify(response);
+      assert.equal(env.completeness, 'blocked', label);
+      assert.equal(env.coverage_mode, 'unavailable', label);
+      assert.equal(env.result_state, 'unavailable', label);
+      assert.equal(env.empty_reason, 'not_loaded', label);
+      assert.deepEqual(envelopeViolations(env), [], label);
+    }
+  });
+
+  it('never reaches no_results on the error path', () => {
+    assert.notEqual(envelopeForError({ status_code: 429, detail: 'x' }).status, 'no_results');
+    assert.notEqual(envelopeForError({ status_code: 403, detail: 'x' }).status, 'no_results');
   });
 });
 
@@ -273,6 +396,46 @@ describe('MCP server — search_flights result envelope (end-to-end)', () => {
     assert.equal(payload.completeness, 'blocked');
     assert.equal(payload.fix_hint_code, 'SERVICE_UNAVAILABLE');
   });
+
+  it('stamps receipt time honestly, never a fabricated provider time', async () => {
+    const payload = await callSearchFlights(({ url }) =>
+      url.startsWith('/api/search')
+        ? { status: 200, body: { search_id: 's1' } }
+        : { status: 200, body: { status: 'completed', offers: [{ id: 'o1', price: 90 }] } });
+    // letsfg.co exposes no observation stamp, so `provider` would be a claim we
+    // cannot support — §2.1 names this the failure the basis exists to prevent.
+    assert.equal(payload.observed_at_basis, 'client_receipt');
+    assert.notEqual(payload.observed_at_basis, 'provider');
+    assert.equal(payload.freshness, 'live');
+    assert.match(String(payload.observed_at), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it('carries the coverage pair on a settled search', async () => {
+    const withOffers = await callSearchFlights(({ url }) =>
+      url.startsWith('/api/search')
+        ? { status: 200, body: { search_id: 's1' } }
+        : { status: 200, body: { status: 'completed', offers: [{ id: 'o1', price: 90 }] } });
+    assert.equal(withOffers.coverage_mode, 'complete');
+    assert.equal(withOffers.result_state, 'results');
+    assert.deepEqual(envelopeViolations(withOffers as unknown as Envelope), []);
+
+    const empty = await callSearchFlights(({ url }) =>
+      url.startsWith('/api/search')
+        ? { status: 200, body: { search_id: 's2' } }
+        : { status: 200, body: { status: 'completed', offers: [] } });
+    assert.equal(empty.empty_reason, 'provider_empty', 'a real empty states its reason');
+    assert.equal(empty.result_state, 'confirmed_empty');
+    assert.equal(empty.coverage_mode, 'complete');
+    assert.deepEqual(envelopeViolations(empty as unknown as Envelope), []);
+  });
+
+  it('carries unavailable/unavailable on a failure, never a result state', async () => {
+    const payload = await callSearchFlights(() => ({ status: 429, headers: { 'Retry-After': '5' }, body: { detail: 'slow' } }));
+    assert.equal(payload.coverage_mode, 'unavailable');
+    assert.equal(payload.result_state, 'unavailable');
+    assert.equal(payload.empty_reason, 'not_loaded');
+    assert.deepEqual(envelopeViolations(payload as unknown as Envelope), []);
+  });
 });
 
 // ── Per-lane routes ───────────────────────────────────────────────────────
@@ -375,7 +538,7 @@ async function callTool(
   name: string,
   args: Record<string, unknown>,
   env: Record<string, string> = {},
-): Promise<{ payload: Record<string, unknown> | null; text: string }> {
+): Promise<{ payload: Record<string, unknown> | null; text: string; structured: Record<string, unknown> | undefined }> {
   const { server, baseUrl } = await fakeApi(() => ({ status: 200, body: PERMISSIVE_BODY }));
   const proc = spawnServer({ LETSFG_BASE_URL: baseUrl, ...env });
   try {
@@ -385,12 +548,15 @@ async function callTool(
     await nextMessage(proc);
     rpc(proc, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } });
     const response = await nextMessage(proc);
-    const result = response.result as { content: Array<{ text: string }> };
+    const result = response.result as {
+      content: Array<{ text: string }>;
+      structuredContent?: Record<string, unknown>;
+    };
     const text = result.content[0].text;
     try {
-      return { payload: JSON.parse(text) as Record<string, unknown>, text };
+      return { payload: JSON.parse(text) as Record<string, unknown>, text, structured: result.structuredContent };
     } catch {
-      return { payload: null, text };
+      return { payload: null, text, structured: result.structuredContent };
     }
   } finally {
     proc.kill();
@@ -398,7 +564,7 @@ async function callTool(
   }
 }
 
-async function advertisedToolNames(): Promise<string[]> {
+async function advertisedTools(): Promise<Array<{ name: string; outputSchema?: Record<string, unknown> }>> {
   const { server, baseUrl } = await fakeApi(() => ({ status: 200, body: PERMISSIVE_BODY }));
   const proc = spawnServer({ LETSFG_BASE_URL: baseUrl });
   try {
@@ -408,12 +574,16 @@ async function advertisedToolNames(): Promise<string[]> {
     await nextMessage(proc);
     rpc(proc, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const response = await nextMessage(proc);
-    const result = response.result as { tools: Array<{ name: string }> };
-    return result.tools.map((tool) => tool.name).sort();
+    const result = response.result as { tools: Array<{ name: string; outputSchema?: Record<string, unknown> }> };
+    return result.tools;
   } finally {
     proc.kill();
     server.close();
   }
+}
+
+async function advertisedToolNames(): Promise<string[]> {
+  return (await advertisedTools()).map((tool) => tool.name).sort();
 }
 
 describe('MCP server — envelope coverage across the advertised tool list', () => {
@@ -468,5 +638,39 @@ describe('MCP server — envelope coverage across the advertised tool list', () 
     const guide = await callTool('load_resources', {});
     assert.equal(guide.payload, null, 'load_resources returns the guide text, not JSON');
     assert.match(guide.text, /^# LetsFG/);
+    assert.equal(guide.structured, undefined, 'the guide is text, so there is nothing to structure');
+  });
+
+  it('returns structuredContent identical to the text payload', async () => {
+    for (const [name, args] of ENVELOPED_TOOLS) {
+      const { payload, structured } = await callTool(name, args);
+      assert.ok(structured, `${name}: an enveloped tool must return structuredContent`);
+      assert.deepEqual(structured, payload, `${name}: structuredContent must not disagree with the text block`);
+      assert.equal(
+        structured?.observed_at_basis,
+        'client_receipt',
+        `${name}: every response here is fetched live, so the basis is receipt — never provider`,
+      );
+      assert.equal(structured?.freshness, 'live', name);
+    }
+  });
+
+  it('advertises an outputSchema on every tool, carrying the envelope vocabulary', async () => {
+    const tools = await advertisedTools();
+    assert.ok(tools.length > 0, 'tools/list returned nothing to check');
+    for (const tool of tools) {
+      const schema = tool.outputSchema;
+      assert.ok(schema, `${tool.name} advertises no outputSchema`);
+      assert.deepEqual(schema.required, ['status', 'completeness'], `${tool.name}: the envelope is required`);
+      const props = schema.properties as Record<string, { enum?: string[] }>;
+      assert.deepEqual(props.status.enum, ['ok', 'no_results', 'timeout', 'rate_limited', 'auth_required', 'failed'], tool.name);
+      assert.deepEqual(props.completeness.enum, ['complete', 'partial', 'blocked'], tool.name);
+      assert.deepEqual(props.empty_reason.enum, ['provider_empty', 'not_loaded', 'filtered_out'], tool.name);
+      assert.deepEqual(props.coverage_mode.enum, ['complete', 'partial', 'unavailable'], tool.name);
+      assert.deepEqual(props.result_state.enum, ['results', 'confirmed_empty', 'unavailable'], tool.name);
+      assert.deepEqual(props.observed_at_basis.enum, ['provider', 'provider_fetch', 'client_receipt'], tool.name);
+      assert.deepEqual(props.freshness.enum, ['live', 'unknown'], tool.name);
+      assert.equal(schema.additionalProperties, true, `${tool.name}: the payload half stays open`);
+    }
   });
 });

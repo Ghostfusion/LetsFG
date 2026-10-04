@@ -271,6 +271,31 @@ The agent has native tools — no API docs needed, no URL building, no token-bur
 }
 ```
 
+### Reading a result before you trust it
+
+Every tool result carries a **result envelope** beside its payload — in the text block *and* in
+`structuredContent`, with the same fields — so an agent can tell "the source answered and there is
+nothing" from "the source never answered". `tools/list` publishes the matching `outputSchema` on
+every tool.
+
+| Field | Values | What it means |
+|---|---|---|
+| `status` | `ok` · `no_results` · `timeout` · `rate_limited` · `auth_required` · `failed` | `ok` = the call completed; `no_results` = a source-reported empty under complete coverage. **Any other value is not an empty market** — never tell the user there are no flights on a `timeout` or a `rate_limited`. |
+| `completeness` | `complete` · `partial` · `blocked` | `blocked` = the source did not answer. `partial` = not every source finished. |
+| `note` | sentence | Why the verdict is not complete. Repeat its caveat to the user. |
+| `empty_reason` | `provider_empty` · `not_loaded` · `filtered_out` | Why a set is empty. Only `provider_empty` can mean "no flights"; `filtered_out` is evidence about the filters we applied, not about the route. |
+| `coverage_mode` × `result_state` | `complete`/`partial` × `results`/`confirmed_empty`, `unavailable` × `unavailable` | How much of the declared scope was searched, and what that supports. An empty under `partial` coverage is **not** absence. |
+| `observed_at` + `observed_at_basis` | `provider` · `provider_fetch` · `client_receipt` | When the data was observed, and how much to trust it. This server always reads live and reports `client_receipt` — it never claims a provider-stamped observation time it does not have. |
+| `freshness` | `live` · `unknown` | Whether this call fetched the data. |
+| `fix_hint_code` / `retry_after_ms` | error code · ms | The same error vocabulary as the Python and JS SDKs, plus the server's back-off when it sent one. |
+
+An empty result under narrowed coverage is the classic false "no flights", so it comes back as
+`status: ok` with `coverage_mode: partial` and `result_state: confirmed_empty` — deliberately
+**not** `no_results`, which is reserved for a source-reported empty under complete coverage.
+
+If a payload carries its own `status` (a booking's `booking_in_progress`, say), the envelope's
+verdict moves to `envelope_status` beside it, so neither one is lost.
+
 ---
 
 ## Starlink Wi-Fi

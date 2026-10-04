@@ -59,7 +59,10 @@ test('the Python package version matches its runtime __version__', () => {
 
 function advertisedToolNames() {
   const src = read('sdk/mcp/src/index.ts');
-  const start = src.indexOf('const TOOLS = [');
+  // The declaration carries a type annotation so `outputSchema` can be attached
+  // to every entry; match the array regardless of whether one is present.
+  const match = /const TOOLS(?::\s*[A-Za-z_$][\w$]*\[\])?\s*=\s*\[/.exec(src);
+  const start = match ? match.index : -1;
   assert.ok(start >= 0, 'TOOLS array not found in sdk/mcp/src/index.ts');
   const end = src.indexOf('\n];', start);
   assert.ok(end > start, 'TOOLS array is not terminated');

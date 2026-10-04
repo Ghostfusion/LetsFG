@@ -175,6 +175,22 @@ evidence — see [`serpapi-provider-design.md`](serpapi-provider-design.md) §7.
 lane has since been declined, and the value outlives it: the rule is about *any*
 upstream that exposes no observation time of its own.)
 
+**Implemented 2026-10-03** in the MCP envelope (`sdk/mcp/src/envelope.ts`), which is
+where these contracts first had a wire to ride. Three details the implementation had to
+settle, recorded here so the code and this section cannot drift apart:
+
+- **`freshness` has two values on the wire: `live | unknown`.** The retained-observation
+  classes (`recent`, `stale`) are deliberately absent — they describe a *stored*
+  observation, and this wire contract only ever reports a call it just made.
+- **`not_loaded` covers every failure status, not only `timeout`/`failed`.** The table
+  above lists those two as examples of the class; the definition — "no usable response
+  at all: timeout, limiter refusal, …" — is what governs, so `rate_limited` and
+  `auth_required` are members of it too.
+- **The two illegal coverage cells are unrepresentable in the type system**, not merely
+  rejected at runtime: `LegalCoverage` is written as a union, and the guard test carries
+  `@ts-expect-error` directives that fail `tsc --noEmit` if either cell ever becomes
+  writable.
+
 **Why `freshness` (review).** A retained observation is dangerous without it: `current_price = 6200` means nothing unless you also know *when* it was seen and whether it was verified. A scanner that keeps observations must never present a stale price as current, so the two fields are part of the contract from the start rather than a later retrofit. `unknown` is the honest default for anything the client did not fetch itself.
 
 **Completeness must be able to grow quantitatively (review #1) — optionally (review #2).** The enum stays the MCP contract, but the shape should not *prevent* the future form:
