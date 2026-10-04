@@ -57,6 +57,15 @@ a heading carries:
 
 ### Fixed
 
+- Python: the SerpApi adapter labelled every First-class segment `economy`. A
+  response segment's `travel_class` reads `"First Class"` — measured against the
+  live provider — while `_CABIN_CLASSES` held only `"first"`, so the lookup missed
+  and fell through to the economy default on the `FlightOffer` a consumer reads.
+  The measured spelling is now mapped, asserted at the segment. **Scope limit:
+  only measured spellings are added (design §3.5) — a value the provider spells
+  some other way still lands on the economy default, because there is no evidence
+  for any other spelling yet.** (791180e)
+
 - Python + JS: `MISSING_PARAMETER` — documented as "Required field missing" — was
   assigned to nothing. Python raised a bare `ValueError` when `search_id` was
   missing, outside the taxonomy its own documentation promises, so a caller
