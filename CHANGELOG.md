@@ -37,6 +37,10 @@ a heading carries:
   versions, tool documentation, OpenAPI URL composition, local links) and
   `test/workflow-hygiene.test.mjs` (action pinning, job timeouts, permissions).
   (5d2eeda, 6ead61d)
+- CI: a pull request that reads as a fix — title or any commit subject saying
+  `fix`/`hotfix`/`bugfix` — must change a test in every package whose
+  `sdk/js/src` or `sdk/mcp/src` it changed. The `skip-regression-test` label is
+  the documented bypass. (04da615)
 
 ### Changed
 
