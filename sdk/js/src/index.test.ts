@@ -454,3 +454,40 @@ describe('hotels', () => {
     assert.deepEqual([...HOTEL_BOOKING_FINAL_STATUSES], ['succeeded', 'failed', 'attention']);
   });
 });
+
+// ── PFS poll timeout ──────────────────────────────────────────────────────
+
+describe('PFS search poll timeout', () => {
+  it('throws a retryable SUPPLIER_TIMEOUT carrying the search_id, not an empty result', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalNow = Date.now;
+    // One poll, then past the 120 s deadline: the loop exits after a single
+    // 2 s wait instead of waiting out the real timeout.
+    let tick = 0;
+    Date.now = () => originalNow() + (++tick) * 100_000;
+    globalThis.fetch = (async (url: string) => {
+      const payload = String(url).endsWith('/api/search')
+        ? { search_id: 'ws_timeout1' }
+        : { status: 'searching' };
+      return { ok: true, status: 200, json: async () => payload } as Response;
+    }) as typeof fetch;
+    try {
+      await assert.rejects(
+        () => new LetsFG({ bearerToken: 'tok', baseUrl: 'http://lfg.test' })
+          .search('GDN', 'BCN', '2027-06-15'),
+        (err: unknown) => {
+          const e = err as LetsFGError;
+          assert.equal(e.statusCode, 504, 'a give-up is a timeout, not a result');
+          assert.equal(e.errorCode, ErrorCode.SUPPLIER_TIMEOUT);
+          assert.equal(e.errorCategory, ErrorCategory.TRANSIENT);
+          assert.equal(e.isRetryable, true, 'a timeout is transient — retrying is safe');
+          assert.match(e.message, /ws_timeout1/, 'the caller must learn which search to poll');
+          return true;
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      Date.now = originalNow;
+    }
+  });
+});

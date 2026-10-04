@@ -464,7 +464,20 @@ export class LetsFG {
       await new Promise(r => setTimeout(r, PFS_POLL_INTERVAL_MS));
     }
     if (!terminal) {
-      throw new LetsFGError('Search timed out after 120s. Try polling /api/results/<id> directly.', 504);
+      // A search that never reached a terminal status is not an empty result
+      // set, and it is not a business failure either. Thrown with no errorCode
+      // this carried errorCode '' and errorCategory 'business', so isRetryable
+      // was false and a caller that trusts it would refuse to retry a timeout.
+      // SUPPLIER_TIMEOUT is transient, and it is the same code the Python SDK
+      // raises on the same condition (sdk/python/letsfg/local.py). The message
+      // used to say "polling /api/results/<id>", a literal placeholder, so it
+      // never told the caller which search to poll.
+      throw new LetsFGError(
+        `Search timed out after ${PFS_POLL_TIMEOUT_MS / 1000}s without a terminal status (search_id ${search_id}). Poll /api/results/${search_id} directly, or search again.`,
+        504,
+        {},
+        ErrorCode.SUPPLIER_TIMEOUT,
+      );
     }
 
     // Terminal, but maybe still growing. Bounded wait: a flag that never clears
