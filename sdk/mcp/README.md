@@ -194,6 +194,30 @@ To avoid unexpected updates (2026.5.77 or later: earlier versions cannot book ho
 }
 ```
 
+### Windows — where Claude Desktop actually reads the config
+
+The **Microsoft Store build** of Claude Desktop does not read the classic
+`%APPDATA%\Claude\claude_desktop_config.json`. Its data root is
+`%LOCALAPPDATA%\Claude-3p`, so the file it uses is:
+
+```
+%LOCALAPPDATA%\Claude-3p\claude_desktop_config.json
+```
+
+The symptom of editing the wrong one: the server never appears in the tool list,
+and nothing new is written to `%APPDATA%\Claude\logs\`. Rather than guess, open
+**Settings → Developer → Edit Config** — that opens the file the running app
+actually reads.
+
+Verified 2026-10-04 on Store build `2.19675.0.0`
+(`Claude_pzs8sxrjxfjjc`): the app rewrote its own
+`Claude-3p\claude_desktop_config.json` while running, and once the entry was
+added there the handshake shows up in
+`%LOCALAPPDATA%\Claude-3p\logs\mcp-server-letsfg.log`
+(`notifications/initialized`, `tools/list`, `resources/list`) with the server
+listed among the session's servers. The direct-download build still uses the
+`%APPDATA%\Claude` path.
+
 ---
 
 ## Available Tools

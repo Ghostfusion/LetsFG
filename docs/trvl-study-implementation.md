@@ -224,6 +224,33 @@ The **audience annotation was missing until now**, and the plan's two halves do 
 
 `isError` stays reserved for genuine tool failures, as specified.
 
+**Risk retired (2026-10-04): verified against two real clients.** Claude Code
+2.1.260 (SDK client) completed `initialize`/`tools/list` and made real tool calls
+— it rendered `load_resources` (quoting the guide's first heading back) and
+received `search_flights` results as JSON, which is how the defect below was
+found. Claude Desktop (Microsoft Store build `2.19675.0.0`) loaded the server and
+registered it among the session's servers: its own log
+(`%LOCALAPPDATA%\Claude-3p\logs\mcp-server-letsfg.log`) records
+`notifications/initialized`, `tools/list` and `resources/list`, and `main.log`
+reports `7 servers (7 with tools)` including `letsfg`. Neither client rejected
+`outputSchema`, `structuredContent` or `annotations` — the failure mode this check
+existed for.
+
+**The verification paid for itself: it found a real defect.** With no credential,
+`search_flights` answered `{"error": "Authentication required…"}` — a bare object
+with no `status`, `completeness` or `fix_hint_code`, so an agent had nothing to
+branch on. The suite could not see it because `spawnServer` defaults
+`LETSFG_BEARER_TOKEN` to `test-token`, which made every uncredentialed path
+unreachable while the coverage test asserted the opposite. Fixed in `44aea31`:
+one `withRefusal` helper wraps all seven local refusals, and those refusals
+deliberately carry **no** `observed_at_basis`/`freshness` — `observedNow()` had
+been stamping `client_receipt` and `freshness: live` on paths where nothing was
+received. A new pass runs every enveloped tool with **no** credential and asserts
+a legal verdict plus a `fix_hint_code` on refusals.
+
+**Still not provable from outside:** whether a client chooses to hide the
+`["assistant"]` block from the user. That is client policy, not our contract.
+
 ### P2.3 — Move long guidance out of `tools/list` into the guide resource
 
 **Files:** `sdk/mcp/src/index.ts` (`description` fields, `GUIDE_TEXT`).
