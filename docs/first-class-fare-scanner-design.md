@@ -1170,6 +1170,12 @@ study (§6, Q8); the scheduler's recovery policy (§6.3 skip reasons, §6.6 budg
 depends on the answer, so P2.2 lands its planner and observation paths first and its
 recovery behaviour last.
 
+> **Owner waiver, 2026-10-04.** The owner elected to proceed without measuring it.
+> The contract therefore remains `UNKNOWN`, and P2.2's recovery behaviour is written
+> as an assumption rather than from measurement. Recorded here so the waiver stays
+> visible: if a limiter interaction is observed in practice it belongs in this
+> paragraph, and the recovery policy should be revised against what was seen.
+
 The study's Q5/Q6/Q9/Q10/Q11 decisions (2026-10-03) are the source of several rules
 in this document: the planner being first-class (§6.1), `discover` as
 candidate-generation only (§6.1, §5.4), client-constructed identity (§5.2),
