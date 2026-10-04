@@ -103,6 +103,37 @@ re-creating the block and raising that number in the same change.
 **Test:** the workflow run itself on a scratch branch.
 **Risk:** medium false-positive rate for pure-comment/docs PRs → mitigate with the label escape hatch, same as trvl.
 
+**Resolution (2026-10-03): DONE, as a job in `test.yml` rather than a new workflow
+file.** The semantics are as specified; the home is not. This repository keeps its
+Tier-1 gates in one file — `docs/TESTING.md` documents them, the workflow header
+names the required checks, and `test-coverage-gate` already lived there — and the
+flight-finder review's own finding was that a second, narrower workflow duplicating
+a `test.yml` job is dead weight (`sdk-tests.yml`, deleted in P0.3 of that plan).
+So `regression-test-gate` is a job beside the gate it complements, and it inherits
+`test.yml`'s least-privilege permissions, concurrency group, SHA-pinned actions and
+job timeout — all enforced by `test/workflow-hygiene.test.mjs`.
+
+The distinction from `test-coverage-gate` is real and both are needed: that job
+checks that **added** files (`--diff-filter=AR`) have a sibling test, whatever the
+PR says; this one checks that a PR **reading as a fix** changes a test in every
+package whose `sdk/*/src` it changed, including when it only *modifies* files —
+which is the case the other gate cannot see today.
+
+The logic is `.github/scripts/check-regression-test.sh` so it is reproducible
+without a PR; the acceptance was run against real history ranges rather than a
+scratch branch:
+
+| Range | Title | Expected | Observed |
+|---|---|---|---|
+| `4863ff0^..4863ff0` (`sdk/mcp/src/index.ts`, no test) | `fix: probe` | fail | `::error::sdk/mcp/src changed with no test change`, exit 1 |
+| `4f1a0ba^..4f1a0ba` | `hotfix: probe` | fail | same, exit 1 |
+| `9598b4e^..9598b4e` (`fix(js)`, with test) | _(commit subject)_ | pass | `OK: sdk/js/src carries a test change`, exit 0 |
+| `baac85b^..baac85b` (`fix(mcp)`, with test) | _(commit subject)_ | pass | `OK: sdk/mcp/src carries a test change`, exit 0 |
+| `0a6b769^..0a6b769` | `feat: probe` | pass | `Not a fix PR — no regression test required`, exit 0 |
+| `3d1f214^..3d1f214` (no `sdk/*/src` change) | `fix: probe` | pass | `✓ every package that changed source also changed a test`, exit 0 |
+
+Also recorded in `docs/TESTING.md` with the label and the local command.
+
 ### P1.2 — SHA-pin GitHub Actions + a hygiene guard
 
 **Files:** `.github/workflows/*.yml`, new `.github/scripts/check-workflow-hygiene.sh`.

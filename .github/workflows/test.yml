@@ -8,6 +8,9 @@ name: CI Tests (Tier-1 gate)
 # (docs/TESTING.md).
 # typescript-packages type-checks the JS SDK and MCP server.
 # docs-claims runs the two zero-dependency guards: documented claims + workflow hygiene.
+# regression-test-gate requires a test change from any PR that reads as a fix
+# (title or commit subject says fix/hotfix/bugfix); bypass with the
+# `skip-regression-test` label.
 
 on:
   pull_request:
@@ -138,6 +141,27 @@ jobs:
           fi
 
           echo "✓ All new source files have tests."
+
+  regression-test-gate:
+    name: Regression test gate (fix PRs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-regression-test')
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # The trigger is the PR title or any commit subject; the requirement is a
+      # changed *.test.ts in every package whose sdk/*/src changed. The logic
+      # lives in a script so it can be reproduced locally:
+      #   bash .github/scripts/check-regression-test.sh 'fix: x' <base-sha> <head-sha>
+      - name: A fix PR must carry a test change
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.base_ref }}
+        run: bash .github/scripts/check-regression-test.sh
 
   python-deterministic:
     name: Python deterministic tests (Tier-1, required)

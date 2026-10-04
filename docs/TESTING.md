@@ -16,6 +16,7 @@ in `.github/workflows/test.yml`.
 | `python-deterministic` | `pytest -m "not live"` in `sdk/python` | **Yes** (required) |
 | `docs-claims` | `node --test test/docs-claims.test.mjs test/workflow-hygiene.test.mjs` | **Yes** (required) |
 | `test-coverage-gate` | new source files must have a sibling test | **Yes** on PRs |
+| `regression-test-gate` | a fix PR must change a test in every package whose `sdk/*/src` it changes | **Yes** on PRs |
 
 ```bash
 # Python SDK
@@ -94,6 +95,17 @@ afterwards.
 For rare exceptions (emergency hotfixes, config-only changes), label the PR
 `skip-test-gate`. This bypasses the automated check but is visible in the PR
 history.
+
+### Skipping the regression gate
+
+`regression-test-gate` fires only on PRs that read as a fix, and only when
+`sdk/js/src` or `sdk/mcp/src` changed without a matching `*.test.ts` change. When
+a fix genuinely has nothing to test — a comment-only edit whose title still says
+`fix`, for instance — label the PR `skip-regression-test`. Run it locally with:
+
+```bash
+bash .github/scripts/check-regression-test.sh 'fix: something' <before-sha> <after-sha>
+```
 
 ## Test file locations in this repository
 
