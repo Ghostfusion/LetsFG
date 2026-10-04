@@ -196,6 +196,10 @@ python tools/check-search-invariant.py
 node test/model-test.js
 python tools/build-ranking.py            # regenerate assets/ranking.js
 
+# Google Flights market scan (LIVE — spends SerpApi quota, prints the estimate first)
+python tools/flight_scan.py --dry-run    # plan and search count, sends nothing
+python tools/flight_scan.py              # the ORD→PEK/HKG/DLC brief: 72 searches
+
 # Docs
 pip install mkdocs-material && mkdocs build
 ```
