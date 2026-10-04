@@ -514,6 +514,25 @@ def test_the_local_time_parser_accepts_what_the_provider_sends() -> None:
     assert parse_local_time("not a time") is None
 
 
+def test_mapped_offers_are_sanitised_by_the_existing_public_shape() -> None:
+    """§13 — public exposure goes through `to_public_offer`, which the adapter must not re-implement."""
+    from letsfg.models.flights import to_public_offer
+
+    provider, _ = provider_with(reply(load("coverage_standard.json")))
+    offer = provider.search(one_way()).offers[0]
+    public = to_public_offer(offer)
+
+    assert public.id == offer.id, "the public shape keeps the offer's identity"
+    assert public.is_locked is True
+    assert public.owner_airline != offer.owner_airline, "the validating carrier is masked to a category"
+    assert public.outbound.segments[0].flight_no == "", "flight numbers are withheld until unlock"
+    assert public.outbound.segments[0].airline_name != offer.outbound.segments[0].airline_name
+    assert not hasattr(provider, "to_public_offer"), (
+        "the adapter must not build its own public shape — the sanitiser is the one place "
+        "that masks, and a second implementation is how masking starts to leak"
+    )
+
+
 # ── P2.3 — the ledger ──────────────────────────────────────────────────────
 
 def test_the_ledger_separates_requests_searches_and_billable_searches() -> None:

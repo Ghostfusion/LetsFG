@@ -206,6 +206,58 @@ test('SECURITY.md supported versions track the shipped version line', () => {
   }
 });
 
+// ── The SerpApi provider lane ─────────────────────────────────────────────
+// This lane's facts live in more than one place: the design publishes a plan
+// table and a credential convention, the committed capability profile records
+// what a live probe actually measured, and the adapter and the registry each
+// resolve a credential variable. Each pin below is a pair, so editing one side
+// alone fails rather than drifting.
+
+test('the SerpApi provider documents are in the MkDocs nav', () => {
+  const nav = read('mkdocs.yml');
+  for (const doc of ['serpapi-provider-design.md', 'serpapi-provider-implementation.md']) {
+    assert.ok(nav.includes(doc), `${doc} must be listed in mkdocs.yml`);
+  }
+});
+
+test('the measured capability profile agrees with the plan table the design publishes', () => {
+  // The profile is written by the live probe, so a re-probe on a different plan
+  // fails here until the design's tier decision is updated with it — which is the
+  // point: the design's numbers are supposed to be measured, not remembered.
+  const account = json('sdk/python/tests/fixtures/serpapi/capability_profile.json').account ?? {};
+  const design = read('docs/serpapi-provider-design.md');
+  const row = /^\|\s*Starter\s*\|[^\n]*\|/m.exec(design)?.[0];
+  assert.ok(row, 'docs/serpapi-provider-design.md must keep its plan table');
+  const monthly = account.searches_per_month;
+  assert.ok(monthly > 0, 'the capability profile must record searches_per_month');
+  assert.match(row, new RegExp(monthly.toLocaleString('en-US')), `the Starter row must state ${monthly} searches/month`);
+  assert.match(
+    row,
+    new RegExp(String(account.account_rate_limit_per_hour)),
+    `the Starter row must state ${account.account_rate_limit_per_hour} searches/hour`,
+  );
+  assert.equal(
+    json('sdk/python/tests/fixtures/serpapi/capability_profile.json').provider,
+    'serpapi_google',
+    'the profile names the provider its fixtures belong to',
+  );
+});
+
+test('one credential variable is resolved, and every surface names the same one', () => {
+  // `SERPAPI_KEY` and Serper.dev's `SERPER_API_KEY` differ by one letter and have
+  // already been misfiled against each other on a real machine (design §14, D18).
+  // The adapter must resolve exactly one name, and the registry must not disagree
+  // with it about which.
+  const declared = /^ENV_VAR = "([A-Z_]+)"/m.exec(read('sdk/python/letsfg/connectors/serpapi_google.py'))?.[1];
+  assert.equal(declared, 'SERPAPI_KEY', 'the adapter must declare SERPAPI_KEY');
+  assert.match(read('docs/serpapi-provider-design.md'), /SERPAPI_KEY/, 'the design must name that variable');
+  assert.match(
+    read('sdk/python/letsfg/connectors/provider_registry.py'),
+    /"SERPAPI_KEY"/,
+    'the registry must gate the provider on the same variable the adapter resolves',
+  );
+});
+
 // ── Parked Python tests ───────────────────────────────────────────────────
 // sdk/python/conftest.py parks modules that cannot run. Two guards, both about
 // keeping the quarantine a work queue rather than a resting place:
