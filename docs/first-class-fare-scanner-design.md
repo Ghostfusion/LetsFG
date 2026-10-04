@@ -576,8 +576,9 @@ provider health breaker   "is this source trustworthy?"   counts contract-level 
 units we actually sent; a breaker that abandons a sweep records the rest as
 `unattempted` — never `failed`, never billable. This keeps §6.3's distinction intact
 at the accounting layer. (The rule first appeared in the SerpApi lane's ledger design
-§10 — a lane since declined — which is exactly why it is restated here as a scanner
-invariant rather than left as a citation to a document we do not act on.)
+§10 — a lane declined and adopted the same day — which is exactly why it is restated here
+as a scanner invariant rather than left as a citation: it holds whether or not that lane
+is in service.)
 
 ## 7. Deal engine
 
@@ -623,10 +624,12 @@ deals, since discover prices are cheaper by construction and not bookable.
 
 **Provider price context is not a baseline.** An external provider may supply its
 own price context — Google Flights returns `typical_price_range`, `price_level` and a
-price history per search, as measured by the SerpApi lane before it was declined
-([`serpapi-provider-design.md`](serpapi-provider-design.md) §9). **No provider in the
-portfolio does today**, so the baseline is built from our own observations alone; the
-rule below is what stops a future contributor from becoming one by accident. That
+price history per search, as measured by the SerpApi lane
+([`serpapi-provider-design.md`](serpapi-provider-design.md) §9). **That lane was adopted
+on 2026-10-03**, so a provider in the portfolio does supply context now — under the rule
+below, and never as a baseline. The baseline itself is still built from our own
+observations alone; the rule below is what stops a future contributor from becoming one
+by accident. That
 context is a
 **`ProviderPriceContext`**: it carries the *provider's* cohort and window, which
 are not ours and are unmeasured. It is stored as a provider claim with provenance,

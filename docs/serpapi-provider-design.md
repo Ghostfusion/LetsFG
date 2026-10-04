@@ -1,19 +1,26 @@
 # SerpApi Google Flights — Provider Design
 
-**Status: NOT ADOPTED — owner decision, 2026-10-03.** LetsFG will not use SerpApi. No
-code from this document exists, none will be written, and the probes still open at the
-time of the decision (P0.5's 429 bodies, and the empty-search half of P0.7) are
-**cancelled** rather than deferred. The document is retained deliberately, for three
-reasons: it is the evidence behind the decision; several of its contracts are
-lane-independent and outlive the vendor (provider provenance, `ProviderPriceContext` as
-a claim rather than a baseline, the client-side budget ledger of D20, the fail-safe 429
-classification of D4); and a future *rented acquisition* candidate should be judged
-against a bar that already exists rather than starting from nothing.
+**Status: ADOPTED — owner decision, 2026-10-03.** LetsFG will use SerpApi as an
+**optional market provider adapter**. The lane was **declined and re-activated on the
+same day**: the owner bought the Starter plan and reversed D1. The decline is kept in
+§20 rather than erased, because the contracts argued during it are why this document is
+implementation-ready — provider provenance, `ProviderPriceContext` as a claim rather
+than a baseline, the client-side budget ledger of D20 and the fail-safe 429
+classification of D4 were all tightened to survive a vendor, and they did.
 
-**What the decision resolves.** §16 **D1** (ownership) is answered **no**. D10
-(probe-first) and D12 (plan tier) become moot, as does the Legal Shield procurement
-question (§4.3) and the credential convention of §14 — no key is ever needed, nothing in
-the repository reads `SERPAPI_KEY`, and nothing should.
+**Measured account state at adoption (2026-10-03).** `GET https://serpapi.com/account`
+returns `plan_id: starter_v4`, `plan_name: Starter Plan`, `searches_per_month: 1000`,
+`plan_searches_left: 1000`, `this_month_usage: 0`,
+`account_rate_limit_per_hour: 200`. That is the tier D12 recommended for continuous
+operation, and it is the number §10's budget model is written against.
+
+**What the decision reopens.** §16 **D1** (ownership) is answered **yes**. D10
+(probe-first) is **binding again**: the two probes never run — P0.5's 429 bodies and the
+empty-search half of P0.7 — are owed before the adapter, not cancelled. D12 (plan tier)
+is **closed by purchase**. The Legal Shield question (§4.3) is live again as an optional
+procurement. The credential convention of §14 is now a requirement with a live
+consumer, and its measured misfiling (§14) is an action item rather than a footnote:
+the key must be readable as `SERPAPI_KEY`.
 
 **Provenance:** the provider facts below were read from SerpApi's own documentation on
 2026-10-03 (the engine pages, the price-insights and booking-options sub-pages, the
@@ -760,7 +767,12 @@ the adapter must not build its own public shape.
   therefore resolves **exactly** `SERPAPI_KEY`, must never fall back to a
   Serper-shaped name, and must fail with an explicit "wrong or missing credential"
   message rather than a bare 401, because a mis-filed key is the likeliest failure
-  of this adapter's entire configuration surface.
+  of this adapter's entire configuration surface. **Now live (adoption, 2026-10-03):**
+  the key at this machine's `.env:SERPER_API_KEY` is a genuine SerpApi key — verified
+  against the account endpoint, Starter plan — so the fix is to file it under
+  `SERPAPI_KEY`. The adapter will not read the Serper-shaped name, by D18, and that
+  refusal is the point: a fallback would have made the misfiling work here and fail
+  wherever else it is deployed.
 - SerpApi takes the key as a **query parameter**, so it is present in the request
   URL. Therefore: **never log a full request URL**, never include the URL in an
   exception message, and never surface it in a user-facing error or a report.
@@ -812,7 +824,7 @@ local provenance   what we keep — the minimum normalised query required for
 
 | # | Decision | Status |
 |---|---|---|
-| D1 | Add SerpApi as an **optional market provider adapter** inside this repo, behind the existing `FlightOffer` contracts, with no new public surface and no core dependency | **RESOLVED — NO** (owner, 2026-10-03): LetsFG will not use SerpApi. The lane is **declined, not deferred**; everything gated on it is cancelled, and §17's remaining probes will not run. The lane-independent rules stated in D3–D9 and D15–D20 remain valid for any provider |
+| D1 | Add SerpApi as an **optional market provider adapter** inside this repo, behind the existing `FlightOffer` contracts, with no new public surface and no core dependency | **RESOLVED — YES** (owner, 2026-10-03): SerpApi is **adopted**. The lane was declined earlier the same day and re-activated when the owner purchased the Starter plan. D10 still gates code on the probe, and the lane-independent rules in D3–D9 and D15–D20 apply unchanged |
 | D2 | Never trust a provider-supplied duration total; recompute from segments and let the existing validators own the result | DECIDED (forced by §12.1) |
 | D3 | `no_cache=true` for every observation that may alert or verify; cached responses only for non-alerting series. Basis is `provider_fetch` (never `provider`) unless a provider timestamp is measured (§7) | DECIDED |
 | D4 | Classify 429 fail-safe: known quota message → `budget_exhausted` (terminal); known throughput indication → `rate_limited`; **anything unrecognised → `rate_limit_unknown`** (transient), never guessed. Fixture-pinned | DECIDED |
@@ -821,9 +833,9 @@ local provenance   what we keep — the minimum normalised query required for
 | D7 | kgmid is provider-local provenance, not canonical identity | DECIDED |
 | D8 | Key from the environment only; never log a request URL (key is a query parameter) | DECIDED |
 | D9 | A per-provider budget ledger; empty-but-successful results consume quota, failures and cache hits do not | DECIDED |
-| D10 | No adapter code until the probe has run. **Partly satisfied 2026-10-03** (§17): freshness, cache, pinning, price context and coverage were measured. **Moot since the lane was declined**: the two remaining gates (P0.5, P0.7) will never be run | ~~**DECIDED (gating)**~~ — closed |
+| D10 | No adapter code until the probe has run. **Partly satisfied 2026-10-03** (§17): freshness, cache, pinning, price context and coverage were measured. **Re-opened with the adoption**: P0.5 (429 bodies) and the empty-search half of P0.7 are the two gates still unrun, and they bind P1.4 (the 429 classifier) and P2.3 (the ledger) | **DECIDED (gating) — live** |
 | D11 | Provider price context (`typical_price_range`, `average_price`) is stored as provider claims; not rankable or alertable until its window/cohort is measured (naming and separation rule in D15) | DECIDED |
-| D12 | Plan tier is an owner cost decision. Free (≈8 searches/day) cannot sustain broad or continuous scanning but is sufficient for development, shadow collection and narrowly scoped monitoring; Starter was the minimum paid tier recommended for continuous operation | ~~**OPEN — owner**~~ — **moot**: no tier is purchased, the lane being declined |
+| D12 | Plan tier is an owner cost decision. Free (≈8 searches/day) cannot sustain broad or continuous scanning but is sufficient for development, shadow collection and narrowly scoped monitoring; Starter was the minimum paid tier recommended for continuous operation | **CLOSED — Starter purchased** (owner, 2026-10-03). Measured: 1000 searches/month, 200/hour, 0 used at adoption. Enough for shadow collection before any alerting, which is what the tier recommendation was for |
 | D13 | `flight_result` (flight status) is out of scope for v1 | DECIDED |
 | D14 | The adapter must not import SerpApi's client package; standard library HTTP only | DECIDED |
 | D15 | Provider price fields are a **`ProviderPriceContext`**, not the scanner's baseline: stored as provider claims, non-rankable and non-alertable until their window/cohort is measured, and separable in the evaluation record (§9) | DECIDED |
@@ -837,11 +849,12 @@ local provenance   what we keep — the minimum normalised query required for
 
 ## 17. Open probes (must run before code)
 
-> **Cancelled 2026-10-03 with the lane** (§16 D1 resolved **no**). The measurements
-> already recorded below stand as the evidence behind that decision; P0.5 (429 bodies)
-> and the empty-search half of P0.7 will **not** be run, so the capability profile keeps
-> their `null`s permanently — which is itself a fact about the lane: it was declined
-> before its failure contract was ever established.
+> **Re-opened 2026-10-03 with the lane** (§16 D1 resolved **yes**, the same day it was
+> declined). The measurements already recorded below stand as evidence; what is owed now
+> is the two probes that never ran — **P0.5 (the 429 bodies and `Retry-After`)** and the
+> **empty-search half of P0.7** — because D10 gates adapter code on the probe having
+> run. Their `null`s in the capability profile are the plan's P0 acceptance criteria,
+> not permanent facts.
 
 One script, `-m live`-marked, refusing to run without an explicit env flag, on a
 key the owner provides. It measures — recording raw responses as evidence — and
@@ -951,16 +964,17 @@ either resolved with evidence or re-stated as still open.
 
 | Phase | Content | Gate |
 |---|---|---|
-| **P0 — provider contract probe** | §17: freshness/cache, timestamp, 429 bodies, `selected_flights_json` semantics, price-context windows, quota accounting → the **capability profile** | Owner supplies a key and accepts quota consumption |
-| **P1 — contract freeze** | Turn the measured evidence into frozen contracts: the four axes, `price_status` + verification outcomes, `observed_at_basis`, completeness/coverage, provenance, `ProviderPriceContext`, ledger counters — plus the pure-function guards that encode them (enum traps §12.2, duration invariant §12.1, 429 classification D4, credential redaction §14) | Free of network; still `OWNER` for new test files under rule 4 |
-| **P2 — the adapter** | Module, request models, mapping, provenance, budget ledger, error mapping | **D1 owner decision required** |
+| **P0 — provider contract probe** | §17: freshness/cache, timestamp, 429 bodies, `selected_flights_json` semantics, price-context windows, quota accounting → the **capability profile** | **Satisfied 2026-10-03**: the owner supplied a key and bought the Starter plan. The two unrun probes (P0.5, the empty-search half of P0.7) are owed |
+| **P1 — contract freeze** | Turn the measured evidence into frozen contracts: the four axes, `price_status` + verification outcomes, `observed_at_basis`, completeness/coverage, provenance, `ProviderPriceContext`, ledger counters — plus the pure-function guards that encode them (enum traps §12.2, duration invariant §12.1, 429 classification D4, credential redaction §14) | Free of network; new test files are authorized with D1 |
+| **P2 — the adapter** | Module, request models, mapping, provenance, budget ledger, error mapping | **D1 resolved yes (2026-10-03)** — unblocked, after P1 |
 | **P3 — scanner wiring** | planner → scheduler → observation store → verification → alerting | Outside this repo |
 
 P1 is deliberately a **freeze**, not a backlog: it is the step between evidence and
 implementation, so the adapter is written against measured behaviour rather than
-against a plausible reading of the documentation. Everything from P2 onward is new
-scope and needs the owner's explicit go-ahead; the implementation plan records it
-that way.
+against a plausible reading of the documentation. With D1 resolved yes, both P1 and P2
+are authorized; the plan's order of work applies, and the conformance suite is written
+against the **existing first-party lanes** first so the newcomer has to fit rather than
+the other way round.
 
 ---
 
@@ -1028,3 +1042,10 @@ that way.
   run (P0.5's 429 bodies, P0.7's empty-search billing), so **D1 is answered no** and D12
   is moot. Nothing in this document is pending: §16 records the closure, and §2 and §17
   are retained as the record of what would have been measured and why.
+- *Re-activated, 2026-10-03* — the owner purchased the SerpApi **Starter** plan and
+  reversed D1 the same day it was declined. Measured account state is in the front
+  matter; §16 D1/D10/D12, §17 and §18 were reopened in place, and the implementation
+  plan's status, owner-decision table and order of work were restored with them. The
+  decline record immediately above is kept deliberately: it is why the contracts are the
+  shape they are, and it is the state the code would regress to if any of them were
+  loosened.

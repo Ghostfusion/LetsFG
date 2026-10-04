@@ -171,9 +171,9 @@ exists to prevent — it would make a stale fare look freshly observed, and the
 scanner's whole purpose is to act on prices at the right moment. Symmetrically,
 `provider_fetch` must never be *reported* as `provider`: a "no cache" fetch is not
 a provider observation timestamp. (Third value added 2026-10-03 from provider
-evidence — see [`serpapi-provider-design.md`](serpapi-provider-design.md) §7. That
-lane has since been declined, and the value outlives it: the rule is about *any*
-upstream that exposes no observation time of its own.)
+evidence — see [`serpapi-provider-design.md`](serpapi-provider-design.md) §7. That lane
+was declined and re-activated the same day, and the value does not depend on it either
+way: the rule is about *any* upstream that exposes no observation time of its own.)
 
 **Implemented 2026-10-03** in the MCP envelope (`sdk/mcp/src/envelope.ts`), which is
 where these contracts first had a wire to ride. Three details the implementation had to

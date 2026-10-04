@@ -1,11 +1,12 @@
 # SerpApi Google Flights — Implementation Plan
 
-**Status: CANCELLED — owner decision, 2026-10-03: LetsFG will not use SerpApi**
-(design §16 D1 resolved **no**). Nothing in this document was implemented and nothing
-will be: P0's remaining probes are cancelled, P1 and P2 are withdrawn, and P3 was
-already another repository's scope. The plan is retained as the record of what the lane
-would have cost and where its risks sat; the probe evidence it did produce is not
-wasted, because several of the contracts it froze apply to any provider.
+**Status: ACTIVE — owner decision, 2026-10-03: LetsFG will use SerpApi** (design §16 D1
+resolved **yes**, reversing the same day's decline, after the owner purchased the
+Starter plan — measured in the design's front matter: 1000 searches/month, 200/hour).
+P0's two unrun probes are re-opened and gate the code; P1 and P2 are live, in that order;
+P3 remains another repository's scope. The cancelling header this replaced is kept in
+§9's resolution log rather than erased, because the plan did not change when the decision
+did — only its status did.
 
 Companion: [`serpapi-provider-design.md`](serpapi-provider-design.md). Section
 references in `§` point there.
@@ -41,24 +42,25 @@ price context got its own type instead of being called a baseline.
 Design §17. The adapter's freshness, verification and completeness rules cannot be
 finished without this, so it is a **gate**, not an optimisation.
 
-**Status 2026-10-03: partly satisfied.** A valid SerpApi key was found on this
-machine (filed under a Serper-shaped name — see design §14), and the decisive
-experiments ran for 7 searches on the Free plan (account usage 1 → 8): cache
-behaviour (P0.2),
-`search_metadata` (P0.4), pin semantics (P0.3), price-context shape (P0.6),
+**Status 2026-10-03: partly satisfied, and re-opened.** A valid SerpApi key was found on
+this machine (filed under a Serper-shaped name — see design §14), and the decisive
+experiments ran for 7 searches on the Free plan (account usage 1 → 8): cache behaviour
+(P0.2), `search_metadata` (P0.4), pin semantics (P0.3), price-context shape (P0.6),
 coverage delta and the duration re-check (P0.8), and a controlled billing sequence
 (P0.7, partially). Results and the filled capability profile are in design §17.
-**Still open at the time of the decision: P0.5 (429 bodies, `Retry-After`) and the
-billability of an empty-but-successful search (P0.7)** — both need deliberately
-quota-consuming requests. **Neither will now run**: the lane was declined on
-2026-10-03 (design §16 D1 resolved **no**), so the capability profile keeps those
-`null`s permanently.
+**Still open, and now owed: P0.5 (429 bodies, `Retry-After`) and the billability of an
+empty-but-successful search (P0.7).** They need deliberately quota-consuming requests,
+which the Starter plan (1000/month, 0 used) makes affordable. They were cancelled for
+part of 2026-10-03 while the lane was declined and are live again with D1 resolved
+**yes**: the capability profile's `null`s are filled by them, not kept.
 
 ### P0.1 A `live`-marked probe script and its capability profile `PROBE` `OWNER`
 
 **Files:** new `sdk/python/tests/test_serpapi_live.py`, plus a committed
 capability-profile JSON. (The old `google_checkout_live_sweep.py` neighbourhood this
-pointed at was deleted with the lane — see §6/D-1.)
+pointed at was deleted earlier the same day — see §6/D-1 — and stays deleted: the
+replacement is a new live test written against the current contract, not a revival of the
+connector-era sweep.)
 
 **Change:** the experiments in P0.2–P0.8, each recording raw responses as fixtures.
 The script MUST:
@@ -147,7 +149,7 @@ duration defect in design §12.1.
 ## 3. Phase P1 — contract freeze and guards (`CODE`, `OWNER`)
 
 Turns measured evidence into frozen types and the tests that hold them. Free of
-network; still new test files, so still gated.
+network; the new test files are authorized with D1 (rule 4 satisfied).
 
 ### P1.1 Freeze the contract types `CODE`
 
@@ -235,7 +237,7 @@ of a documented pair is edited alone.
 
 ---
 
-## 4. Phase P2 — the adapter (`CODE`, gated on design D1)
+## 4. Phase P2 — the adapter (`CODE`, D1 resolved yes)
 
 ### P2.1 Module and provider registry `CODE` `OWNER`
 
@@ -347,11 +349,11 @@ nothing was going to read them.
 
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
-| O1 | ~~**Is SerpApi a provider lane we own?**~~ — **answered 2026-10-03: NO.** LetsFG will not use SerpApi; the lane is *declined*, not deferred. All of P2 is withdrawn with it | ~~All of P2~~ — closed | §16 D1 |
-| O2 | ~~**Provide a key for the probe**~~ — **moot**: no probe will run. The measured misfiling (a SerpApi key sitting under `SERPER_API_KEY` in this machine's `.env`) stays recorded in design §14 as a credential-hygiene note with no consumer | ~~P0.5/P0.7~~ — cancelled | §17 |
-| O3 | ~~**Which plan tier**~~ — **moot**: no tier is purchased | ~~D12~~ — closed | §16 D12 |
-| O4 | ~~**Legal Shield**~~ — **moot**: the indemnity existed to hedge *this* lane's scraping exposure, and the lane is declined. It is no longer an available hedge for any decision — see F2 in the fli plan | ~~Procurement~~ — closed | §4.3 |
-| O5 | ~~**Fate of the dead sweep script and its four JSON artifacts**~~ — **resolved 2026-10-03: deleted** (`git rm`, one commit), together with a sibling dead script the verification scan turned up (`_jetstar_checkout_validate.py`). The vendor was declined, nothing referenced them, and neither script could run | ~~D-1~~ — closed | §6 above |
+| O1 | **Is SerpApi a provider lane we own?** — **ANSWERED 2026-10-03: YES**, on re-decision. The lane was declined in the morning and re-activated when the owner purchased a plan; all of P1–P2 is unblocked with it | All of P1–P2 — **open** | §16 D1 |
+| O2 | **Provide a key for the probe** — **ANSWERED: provided.** Measured against `GET /account`: Starter (`starter_v4`), 1000 searches/month, 0 used, 200/hour. **Action still owed:** it sits under `SERPER_API_KEY` in this machine's `.env`, a name the adapter must refuse by D18 — file it as `SERPAPI_KEY` | P0.5 / P0.7 | §17, design §14 |
+| O3 | **Which plan tier** — **ANSWERED: Starter**, purchased 2026-10-03. D12 is closed by purchase rather than by argument | — | §16 D12 |
+| O4 | **Legal Shield** — **live again as an optional procurement.** The indemnity hedges *this* lane's scraping exposure, and the lane is active. P1/P2 do not wait on it; the exposure exists regardless of whether it is bought | Procurement decision | §4.3 |
+| O5 | **Fate of the dead sweep script and its four JSON artifacts** — **settled 2026-10-03: deleted, and staying deleted.** Nothing referenced them, neither could run, and the re-activated lane writes a *new* live test (P0.1) rather than reviving the connector-era sweep | ~~D-1~~ — closed | §6 above |
 
 ---
 
@@ -387,23 +389,27 @@ nothing was going to read them.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Design + implementation documents (incl. review #1 revision) | **Done** | This document and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green |
-| P0 probe | **Partly done, then cancelled 2026-10-03** — P0.2, P0.3, P0.4, P0.6, P0.8 and a partial P0.7 were measured (7 searches, Free plan, usage 1 → 8). P0.5 and the empty-search half of P0.7 will never run: the lane was declined before its failure contract was established | Design §17 capability profile; no fixtures committed, and none will be |
-| P1.1–P1.8 contract freeze + guards | **Withdrawn with the lane** | The lane-independent rules live on in the fli study and the scanner design; no code is owed here |
-| P2.1–P2.5 adapter | **Withdrawn with the lane** | O1 answered **no** |
+| Design + implementation documents (incl. review #1 revision) | **Done** | This document and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green. **Re-activated 2026-10-03** on D1 = yes: the status headers, gates and this log were restored rather than rewritten, and the decline record is kept |
+| P0 probe | **Partly done; two probes owed.** P0.2, P0.3, P0.4, P0.6, P0.8 and a partial P0.7 were measured (7 searches, Free plan, usage 1 → 8). **P0.5 and the empty-search half of P0.7 are open again** with the adoption, now on the Starter plan | Design §17; fixtures are committed with P0.1 |
+| P1.1–P1.8 contract freeze + guards | **Open** — authorized by D1, no longer withdrawn | — |
+| P2.1–P2.5 adapter | **Open** — authorized by D1 | O1 answered **yes** |
 | P3 scanner wiring | **Out of scope** | Other repository |
-| D-1, D-2 sweep leftovers | **Fixed 2026-10-03 — deleted** | The script, four artifacts and the sibling `_jetstar_checkout_validate.py` were removed; the vendor decision had already made them dead by construction |
+| D-1, D-2 sweep leftovers | **Fixed 2026-10-03 — deleted, and not revived** | The script, four artifacts and the sibling `_jetstar_checkout_validate.py` were removed; the re-activated lane writes a new live test instead |
 
 ---
 
 ## 10. Order of work
 
-**Withdrawn.** The lane was declined before P1 or P2 began, P0 stopped where it stopped,
-and the dead weight has since been deleted (**O5**, §6). Every item in this plan is
-closed.
+**Active.** With D1 resolved yes, the order below applies as written — and it is the same
+order the plan always carried, so nothing had to change when the decision did:
 
-For the record, the order that *would* have applied is preserved in this plan's history:
-contract freeze before adapter, adapter before wiring, with the conformance suite written
-against the existing first-party lanes so the newcomer had to fit rather than the other
-way round. That sequencing is the reusable part, and it is inherited by the fli plan
-(P2.2).
+1. **P0.5 and P0.7** — the two probes that never ran, on the Starter plan. They decide
+   P1.4 (the 429 classifier's fixtures) and P2.3 (whether an empty success is billable),
+   so they come first: D10 gates the adapter on the probe having run.
+2. **P1.1–P1.7** — the contract freeze and its guards, free of network.
+3. **P2.1–P2.5** — the adapter, with the conformance suite written against the
+   **existing first-party lanes first** (P2.5).
+4. **P3** — scanner wiring, in the other repository.
+
+P2.5's ordering is the part that does not bend: a suite written after the adapter exists
+would be written to fit it.

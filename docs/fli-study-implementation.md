@@ -6,6 +6,14 @@ withdrawn, and fli is not admitted as a provider (design D6). Nothing was instal
 run, or requested from Google during the study, and nothing ever will be — that is the
 whole point of the answer having come first.
 
+**Unaffected by the SerpApi adoption the same day.** The owner adopted the *rented* lane
+that afternoon; that is the alternative to owned acquisition, not a route to it, and it
+changes nothing here. F2's answer stands, D6 remains resolved **no**, and this plan stays
+closed — the active plan is
+[`serpapi-provider-implementation.md`](serpapi-provider-implementation.md). One clause of
+F2's *stated basis* did expire (it was called "unhedged"), and §7 corrects it below rather
+than leaving it to be read as current.
+
 The plan is retained as the record of two things: what the acceptance protocol *would*
 have measured, and the decisions already taken alongside the refusal (D7 = **C**, D11 =
 **no automatic fallback**, D12 = **partial coverage may not alert**) — which is where a
@@ -132,8 +140,10 @@ is a finding, not a failure.
 **Change:** determine what Google does to a client that sustains the allowed rate.
 **ACCEPT:** a recorded answer, *or* an explicit decision not to find out. This is the
 probe that could get an IP throttled, so it needs its own go-ahead — and there is no
-precedent to lean on, since the comparable SerpApi 429 experiment was cancelled with that
-lane on 2026-10-03.
+precedent to lean on yet, since the comparable SerpApi 429 experiment was cancelled with
+that lane on 2026-10-03 and came back the same day: the rented lane's P0.5 (the 429
+bodies) is owed under its active plan, so the precedent will exist before this probe is
+ever scheduled.
 
 ---
 
@@ -191,7 +201,9 @@ for booking or baseline inference (design §6.5/§6.6).
 > **Withdrawn 2026-10-03.** D6 is resolved no (F2 declined ownership), so no adapter is
 > built and none of P2.1–P2.5 is owed. The acceptance criteria below are kept because
 > they are the checklist *any* future provider would be held to — the admission gate in
-> particular (§6.6), which is the part of this study that outlives it.
+> particular (§6.6), which is the part of this study that outlives it. The SerpApi plan's
+> equivalent was re-opened the same day it was withdrawn; **this one was not**, and that
+> difference is the whole content of D6.
 
 ### P2.1 The admission gate is the acceptance criterion `ACCEPT`
 
@@ -202,8 +214,9 @@ into a checklist.
 ### P2.2 Capability declaration and coverage provenance `CODE`
 
 **Files:** the provider contract module (there is no existing adapter to sit beside — the
-SerpApi lane was declined before any code, so this would be the first provider
-implementation); the provider registry.
+SerpApi lane was declined and re-activated the same day and has no code yet either, so
+whichever adapter lands first is the first provider implementation); the provider
+registry.
 
 **Change:** implement `provider_capabilities` (design §6.3), the
 `coverage_mode` × `result_state` pair with its legal combinations (design §6.2), the
@@ -211,16 +224,17 @@ failure routing of design §6.5, and per-request instances (its client is not
 thread-safe).
 
 **ACCEPT:** the provider conformance suite — built against the **existing first-party
-lanes**, since the SerpApi plan's suite was never written — passes; a
+lanes**, which the SerpApi plan's P2.5 also requires, so the two cannot drift into
+different suites — passes; a
 test proves the illegal combinations are unrepresentable; a child/infant party yields
 `partial`; and the adapter **cannot be selected as primary**.
 
 ### P2.3 Health, quarantine and fallback `CODE` `OWNER`
 
 **Change:** the health state machine (`HEALTHY → DEGRADED → UNTRUSTED → DISABLED`), the
-quarantine triggers, and the fallback routing — **on the owner's answer to D11**, since
-whether a fli failure automatically falls back to PFS (the only fallback that exists, the
-rented lane having been declined) is a product decision with
+**quarantine triggers, and the fallback routing — **on the owner's answer to D11**, since
+whether a fli failure automatically falls back to PFS (or to the SerpApi provider, the
+rented lane having been adopted on 2026-10-03) is a product decision with
 cost consequences, not an implementation detail.
 
 **ACCEPT:** with the provider forced to `DISABLED`, a scanner run completes without
@@ -253,8 +267,7 @@ the **name collision is handled explicitly** — the PyPI distribution is `fligh
 
 Scanner wiring (planner → provider selection → observation store → verification →
 alerting) belongs to the scanner repository. This repo's obligation ends at the provider
-contract — the same boundary the SerpApi plan drew for its P3 before that lane was
-declined.
+contract — the same boundary the SerpApi plan draws for its P3, which is active again.
 
 ---
 
@@ -278,7 +291,7 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
 | F1 | ~~**Run the P0 acceptance protocol** against Google under our IP~~ — **closed 2026-10-03**: F2 was answered no, so the protocol never runs | ~~All of P0~~ — closed | §2 here, design §10 |
-| F2 | **Is *owned* acquisition acceptable at all?** **A business/legal/ownership decision, not a technical one**, and it had to be answered **before any request was made to Google** — because running the probe *is* the acquisition being decided. It was also unhedged: the rented alternative (SerpApi) was declined the same day | **ANSWERED 2026-10-03: NO.** Owned acquisition is declined. No request was made; P0 does not run; fli is not admitted (design D6); P2 is withdrawn | F1, D6, all of P2 | design §6.6, §9, §11 |
+| F2 | **Is *owned* acquisition acceptable at all?** **A business/legal/ownership decision, not a technical one**, and it had to be answered **before any request was made to Google** — because running the probe *is* the acquisition being decided. The clause that once read "it was also unhedged: the rented alternative (SerpApi) was declined the same day" **expired on 2026-10-03**: the owner adopted that lane hours later, so the decision now stands *with* a rented alternative in place | **ANSWERED 2026-10-03: NO.** Owned acquisition is declined. No request was made; P0 does not run; fli is not admitted (design D6); P2 is withdrawn. Unchanged by the SerpApi adoption — renting the interface is the alternative to owning it, not an argument for it | F1, D6, all of P2 | design §6.6, §9, §11 |
 | F3 | **The dependency boundary** — depend / vendor a subset / reimplement (D7 A/B/C) | **ANSWERED 2026-10-03: C** — reimplement the minimal encoding behind our own contract. No dependency, no `fli`/`flights` name-collision hazard, and fli's internal types never cross the boundary. Inert while D6 is no; recorded because it is the boundary to use if this is ever revisited | P2.5 | design D7 |
 | F4 | ~~Whether to adopt the patterns now~~ — **answered 2026-10-03: yes** | — | design D1/D5 |
 | F5 | **Provider health and fallback** (D11): does fli failure automatically permit fallback to PFS, and which classes quarantine versus retry per search? | **ANSWERED 2026-10-03: no automatic fallback.** A failing provider surfaces as `DEGRADED` and the run reports reduced coverage; silently substituting another lane would change the evidence basis of the comparison, which the coverage contract exists to prevent | P2.3 | design §6.5, D11 |
@@ -326,3 +339,6 @@ cap is stated two ways. Nothing to fix in our repo — recorded as evidence *for
    not alert. Recorded for the contract, not for an implementation that is owed.
 4. ~~**P2**~~ **Withdrawn** with D6.
 5. **O-1/O-2** remain deferred observations, unchanged by the decision.
+6. **Nothing here moves.** The live provider plan is
+   [`serpapi-provider-implementation.md`](serpapi-provider-implementation.md), re-activated
+   2026-10-03; this document's P0–P2 stay closed under D6.

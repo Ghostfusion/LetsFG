@@ -43,15 +43,17 @@ We have three ways to reach fare data and are short of none of them:
 |---|---|---|---|
 | PFS lane (own product) | first-party | free to search | ours |
 | Developer API lane (own product) | first-party | 200 free searches per booking, then $0.01 | ours |
-| SerpApi provider ([design](serpapi-provider-design.md)) | ~~rented acquisition~~ — **declined 2026-10-03** | — | — |
+| SerpApi provider ([design](serpapi-provider-design.md)) | **rented acquisition — adopted 2026-10-03** (declined, then re-activated the same day) | $0.01+/search; Starter plan (1000/mo) | theirs, contractual |
 | **fli** | **owned acquisition** | **zero marginal API fee** | **ours — and Google's** |
 
-The SerpApi row is struck out: the owner declined that lane on 2026-10-03 (its design
-§16 D1 is resolved **no**). That removal matters to the comparison in §6 — it takes the
-**hedged, rented alternative** off the board, so the real choice is no longer "own
-acquisition or rent it" but "own it, or do without that fare universe". F2 in
-[`fli-study-implementation.md`](fli-study-implementation.md) §7 is unhedged in exactly
-that sense.
+**The SerpApi row was struck out for part of 2026-10-03 and is restored.** The owner
+declined that lane in the morning (design §16 D1 resolved **no**) and adopted it the same
+day, buying the Starter plan (D1 resolved **yes**), so the row is live and the **hedged,
+rented alternative is on the board** — which matters to §6 and, more sharply, to F2: the
+framing in [`fli-study-implementation.md`](fli-study-implementation.md) §7 that called
+that decision "unhedged" no longer describes the state of the world. F2's answer (owned
+acquisition is declined) is unchanged; only the reason it was *cheap* to give has moved,
+and a reader should see that rather than inherit an argument whose premise expired.
 
 fli is the only option in that table that is both free and *directly* sourced, and
 it is the only one whose weaknesses are documented with measurements rather than
@@ -275,8 +277,10 @@ only *empty-but-served* pages against its breaker; timeouts "say nothing about t
 dates not yet tried". Our budget ledger already separates billable from non-billable;
 this adds the planner-side rule that *unattempted* work must not be charged as *failed*
 work — now stated directly in
-[`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §6.7, since
-the SerpApi lane that first articulated it has been declined.
+[`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §6.7, restated
+there as a scanner invariant rather than left as a citation to a lane's status — the
+SerpApi lane that first articulated it was declined and re-activated the same day, which
+is exactly why the rule does not cite it.
 
 **P4. Per-date cost is explicit and modelled before the sweep starts.** One fetch per
 date, a hard cap, a measured worst case, and a memory estimate (§4.6). Our planner
@@ -315,7 +319,10 @@ transport rewrite was survivable.
 acquisition. Technically attractive, free, MIT; but it is *owned acquisition of an
 unowned interface*, which was exactly the ownership question of D10, and the owner
 answered it no. The reasoning above is kept rather than deleted, because it is the
-assessment any future candidate of the same shape would have to displace.
+assessment any future candidate of the same shape would have to displace. **The SerpApi
+adoption the same day does not touch this**, and is not an argument for revisiting it:
+SerpApi is *rented* acquisition of the same interface, it is on the board, and renting an
+interface is precisely the thing owning it is the alternative to.
 
 **P10. The `tfs` encoder as a dependency.** MIT permits vendoring; the encoder is the
 durable part (§3). But it encodes *Google's* schema, so it inherits Google's
@@ -361,7 +368,7 @@ inheriting Google's implied total.
 
 ## 6. Provider comparison and integration contract
 
-| Capability | PFS / Dev API (ours) | SerpApi — **declined** | **fli** |
+| Capability | PFS / Dev API (ours) | SerpApi — **adopted** | **fli** |
 |---|---|---|---|
 | Specific-date itineraries with prices | ✓ | ✓ | ✓ (~20–45 rows) |
 | Flexible-date *discovery* | ✗ (fan-out only) | ✓ (deals ranges, `month`) | ✓ (~1 fetch/date, ≤93) |
@@ -375,13 +382,13 @@ inheriting Google's implied total.
 | Breakage risk | ours | theirs, contractual | **Google's, unilateral** |
 | Maintenance burden | ours | theirs | **theirs, but MIT — can be abandoned** |
 
-The SerpApi column above is retained because it is the counterfactual this study
-measured against, not because it is reachable — that lane was declined on 2026-10-03
-(design §16 D1), so no row in it is available to us.
+The SerpApi column is a **live** column again: that lane was declined and re-activated on
+the same day (design §16 D1 resolved no, then **yes**), so every ✓ in it is reachable —
+which inverts what this paragraph used to say.
 
-**The asymmetry that matters — and it survives the decision:** fli gives *prices now*
-with no baseline. It was SerpApi that would have contributed baselines and context, and
-that lane is gone. Our scanner's hardest problem is the baseline
+**The asymmetry that matters — and it now cuts the other way:** fli gives *prices now*
+with no baseline. It is SerpApi that contributes baselines and context, and that lane is
+available to us. Our scanner's hardest problem is the baseline
 ([`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §7.1), and
 fli contributes **nothing** to it — a "cheap flight today" from fli is an observation,
 not a judgement. The honest statement of the portfolio is therefore: **no external
@@ -413,9 +420,10 @@ fli says $8,500  →  scanner treats $8,500 as normal  →  a false "normal" ver
 An observation is evidence about *a fare*; a baseline is a claim about *a population*.
 The scanner's baseline subsystem owns that claim
 ([`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §7.1). The
-**`ProviderPriceContext`** rule was worked out against the SerpApi lane before that lane
-was declined ([`serpapi-provider-design.md`](serpapi-provider-design.md) §9/D15), and it
-is stated as a general contract precisely so it outlives the vendor: a provider's price
+**`ProviderPriceContext`** rule was worked out against the SerpApi lane while that lane
+was briefly declined ([`serpapi-provider-design.md`](serpapi-provider-design.md) §9/D15),
+and it is now the rule that lane will actually be built under — so it stopped being a
+contract that merely outlives a vendor and became the contract in force: a provider's price
 context carries the *provider's* cohort and window, not ours, so it is a claim — never
 our baseline. A provider that helps with context is a *contributor to* an evaluation,
 never its author.
@@ -561,14 +569,16 @@ production until all ten hold:
 **The economic model, stated plainly** (this is the honest version of "free"):
 
 ```
-rented acquisition (SerpApi — declined)   cash cost ↑   engineering/maintenance ↓   legal exposure hedged
+rented acquisition (SerpApi — adopted)    cash cost ↑   engineering/maintenance ↓   legal exposure hedged
 owned acquisition  (fli)                  cash cost ↓   engineering, monitoring, breakage and legal exposure ↑
 ```
 
-The comparison is now lopsided in a way worth stating: the hedged column **cannot be
-bought**, by owner decision. Choosing fli is therefore choosing the unhedged side of this
-table outright, not choosing it over a purchasable alternative — which is precisely what
-F2 asks.
+The hedged column **can now be bought, and was bought**: the owner adopted SerpApi
+(Starter plan) on 2026-10-03. That changes the question F2 answers. Until the adoption,
+choosing fli meant taking the unhedged side because no purchasable alternative existed;
+now the unhedged side is a choice *against* one that exists and is paid for. F2's answer
+is unchanged — owned acquisition of Google's interface was declined on its own terms —
+but this table can no longer be read as evidence that the hedge was unavailable.
 
 ### 6.7 Rented routes to Google Flights: Serper.dev, measured
 
@@ -594,13 +604,12 @@ Two consequences, both of which would otherwise be rediscovered:
   itinerary, no date binding and no seller identity, so under the §6.1 invariant
   they are not even an observation, let alone a baseline; a funnel that harvested
   them would be building on advertising text.
-- **"Rent the Google Flights graph" has no vendor we hold.** The class of vendor
-  that could supply it — a SERP or scraping API — excludes Google by name here. So
-  both routes to that fare universe terminate: owned acquisition (fli) was
-  declined, and the rented one refuses the domain outright. This does not reopen
-  F2; it removes the hedge the §6.6 economic table showed F2 choosing *against*,
-  which leaves "do without that fare universe" as the only available answer rather
-  than one of two preferences.
+- **Serper.dev is not the rented route — SerpApi is.** The superset question here was
+  whether *this* vendor could supply Google Flights; it cannot, and excludes Google by
+  name. The rented route we actually hold is SerpApi, adopted 2026-10-03 (design §16 D1),
+  which does serve the Google Flights engines and was probed live before the decline. So
+  the measurement above closes Serper.dev, not the rented category: §6.6's economic table
+  is read against SerpApi, not against this dead end.
 
 > Scope of what was measured: one key, one route, one day, one query per endpoint.
 > It establishes that **no flights vertical exists** and that **Google is refused**;
@@ -616,7 +625,8 @@ a provider that can price 30–93 dates in one bounded operation.
 
 **Would not:** provide any baseline or "is this unusual" signal; enable booking
 (never — booking remains PFS-only); replace the first-party engine; supply any price
-context (and with the rented lane declined, nothing external does); or reduce our legal
+context (the rented lane does supply it, and is now adopted — fli's contribution to the
+scanner's baseline problem is still nothing); or reduce our legal
 exposure. It would **add** a
 maintenance obligation: an undocumented interface that changed once already in the
 observed window, owned by Google, with no notice period.
@@ -637,7 +647,7 @@ observed window, owned by Google, with no notice period.
 | D8 | No adoption before the P0 probe, which must be **acceptance-test-shaped** (§10, implementation plan §2): nothing here is measured from *our* network, region or account, and **no production sweep may rely on a range cap until the runtime-observed cap is established** (§4.9) | **DECIDED (gating)** |
 | D9 | Never make fli's thinning-with-children behaviour a silent coverage loss: a party with children/infants must produce `partial`, not `no_results` — and `no_results` is prohibited at scanner level whenever coverage is degraded (§6.2) | DECIDED |
 | D10 | The repository's own drifts (§4.9) are recorded as evidence *for* our `docs-claims` guard, not as a criticism to act on | DECIDED |
-| D11 | **Provider health and fallback:** does a fli failure automatically permit fallback to our own PFS lane — the only fallback that exists, the rented lane having been declined on 2026-10-03 — and which failure classes **quarantine** a provider versus trigger an ordinary per-search retry? (§6.5) | **RESOLVED — no automatic fallback (2026-10-03).** A failing provider surfaces as `DEGRADED` and the run reports reduced coverage; silently substituting another lane would change the evidence basis of the comparison, which is what the coverage contract exists to prevent |
+| D11 | **Provider health and fallback:** does a fli failure automatically permit fallback to our own PFS lane — or to the SerpApi provider, the rented lane having been declined on 2026-10-03 and adopted the same day — and which failure classes **quarantine** a provider versus trigger an ordinary per-search retry? (§6.5) | **RESOLVED — no automatic fallback (2026-10-03).** A failing provider surfaces as `DEGRADED` and the run reports reduced coverage; silently substituting another lane would change the evidence basis of the comparison, which is what the coverage contract exists to prevent. **Strengthened by the adoption:** there are now two substitutable lanes, so the temptation the rule forbids is larger, not smaller |
 | D12 | **May an observation with `coverage_mode = partial` participate in an alert?** Recommendation: **no**, unless the alert itself states that its basis is partial coverage | **RESOLVED — no (2026-10-03).** An alert asserts a conclusion about the market, and partial coverage cannot support it; the qualified variant was rejected because the qualification would have to survive into every delivery surface |
 | D13 | Provider failure classification, concurrency limits, retry policy and sweep characteristics belong to the **provider** contract; the planner owns only the global budget and safety limits (§6.4) — fli's `(5 + workers) × 3` is never encoded as a scanner rule | DECIDED |
 | D14 | The capability declaration (§6.3) and the admission gate (§6.6) are the objective prerequisites for D6; a provider that fails any of the ten is not admitted, regardless of how attractive its cost is | DECIDED |
@@ -692,10 +702,14 @@ F2 = YES ──▶ F1 / P0 acceptance protocol ──▶ PASS → fli may be adm
 > (D6 resolved **no**). The retained value below is what the study was for; the
 > acquisition mechanism is rejected, on the same footing as the rented lane.
 >
-> The decision was taken with the **hedged alternative already declined** (SerpApi, its
-> design §16 D1) — so it was made unhedged, which is the honest form of the question:
-> there was no vendor left to buy the legal posture from, and "no" means this fare
-> universe is simply not observed by us rather than rented instead.
+> **Correction, 2026-10-03 (later the same day):** the decision was taken while the hedged
+> alternative was declined (SerpApi, its design §16 D1) — and the owner **re-activated
+> that lane the same day**, buying the Starter plan. The sentence that used to stand here
+> — that the decision was made "unhedged", there being no vendor left to buy the legal
+> posture from — no longer describes the position. F2's answer stands: owned acquisition of
+> Google's interface was declined on its own terms, and the rented route now in place is
+> the alternative to it rather than a reason to revisit it. Recorded rather than quietly
+> dropped, because a decision whose stated basis expired should not keep citing it.
 
 The "NO" branch forbids the probe for a reason that is not procedural tidiness:
 **the probe is itself an exercise of the owned acquisition that F2 exists to
@@ -736,13 +750,13 @@ coverage may not alert**) — rather than from a blank page.
 
 | This document | Depends on / feeds |
 |---|---|
-| §1, §6 | [`serpapi-provider-design.md`](serpapi-provider-design.md) §2/§9 — the provider portfolio and why price context is not a baseline. **That lane is declined**; it is cited as the source of the contract, not as a reachable provider |
+| §1, §6 | [`serpapi-provider-design.md`](serpapi-provider-design.md) §2/§9 — the provider portfolio and why price context is not a baseline. **That lane is adopted (2026-10-03)**: it is both the source of the contract and a provider we now hold |
 | §4.5, §4.7, §8 D1/D5/D9 | [`first-class-fare-scanner-design.md`](first-class-fare-scanner-design.md) §6 (planner cost and fan-out), §9 (alert honesty), and the envelope's `no_results` vs `timeout` rule in [`trvl-study-design.md`](trvl-study-design.md) §2.1 |
 | §4.6 | scanner §6.6 — the budget reservation, now with a per-date cost shape |
 | §4.9 | `test/docs-claims.test.mjs` — the guard this repository's drift argues for |
-| §5.3 P14, §8 D4 | [`trvl-study-design.md`](trvl-study-design.md) §2.1 — the canonical `coverage_mode` × `result_state` statement; the SerpApi design (declined) stated the provider-provenance half first |
+| §5.3 P14, §8 D4 | [`trvl-study-design.md`](trvl-study-design.md) §2.1 — the canonical `coverage_mode` × `result_state` statement; the SerpApi design (declined, then adopted the same day) stated the provider-provenance half first |
 | §8 D6 | trvl study §7 ownership model (provider acquisition is owner-reserved) |
-| §4.10, §5.1 P6 | the provider adapter contract, §13 of the SerpApi design — that lane is declined, but the contract is lane-independent |
+| §4.10, §5.1 P6 | the provider adapter contract, §13 of the SerpApi design — that lane is adopted (2026-10-03), and the contract is lane-independent |
 
 ---
 
