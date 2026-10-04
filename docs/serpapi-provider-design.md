@@ -122,6 +122,17 @@ Rules:
    `false`, `complete`, or "not available". Absence of evidence in a response is
    not evidence about the world, and this rule is what stops the adapter
    quietly acquiring provider-specific semantics.
+6. **Conformance is adapter-scoped** (decision 2026-10-03). The provider conformance
+   suite runs against *adapters*, and the two first-party lanes are exempt by design:
+   they are the product's own market access, not rented observations, and they expose
+   no provider contract to run a suite against (no provenance, `coverage_mode`,
+   `price_status` or verification outcome — they work in the dataclass models in
+   `letsfg/models/__init__.py`). Giving them one would mean inventing semantics they do
+   not have, and this boundary is the reason it is unnecessary: a provider is external,
+   optional and auditable; the first-party lanes are what everything is measured
+   against. The suite ('sdk/python/tests/provider_conformance.py') therefore checks
+   *values* — observations, price contexts, offers — so it cannot be written to fit any
+   one adapter's internals.
 
 ---
 
@@ -193,6 +204,13 @@ All five are reached through one endpoint: `GET https://serpapi.com/search`.
 - **U.S. Legal Shield** (up to $2M, scraping/parsing indemnity) starts at the
   $150/mo Production plan. **ZeroTrace** (no retention of parameters, queries or
   results) is **enterprise-only** — the Cloud tiers.
+  **Decision 2026-10-03 (owner, adopting the engineering recommendation): not
+  purchased.** Three reasons, in order of weight: the indemnity covers *SerpApi's*
+  scraping, and this lane is a client of their API rather than a scraper ourselves, so
+  the exposure it addresses is theirs to carry contractually; buying it means a 6× tier
+  jump ($25 → $150/mo, $1,800/yr) for a lane with no production consumer yet; and the
+  decision is reversible the moment a continuous scanner exists to justify it. Recorded
+  rather than left open, so nobody reopens it as a gap in the plan.
 
 **The account endpoint (measured 2026-10-03, on the Free plan).**
 `GET https://serpapi.com/account?api_key=…` is **free** and returns `plan_id`,
@@ -583,6 +601,15 @@ Concurrency ceiling: the plan's **guaranteed searches per hour** (50 on Free,
 200 on Starter) — not a per-second rate. The adapter must be shaped to *spread*
 searches across the hour rather than burst.
 
+**Measured 2026-10-03 — the hourly ceiling counts performed searches, like the ledger.**
+Three cached replays of one query left both `this_month_usage` and `this_hour_searches`
+untouched, and a request whose parameters are invalid answers `400` while costing
+neither counter. So the limiter is not a per-request throttle: it counts the same thing
+the ledger's `ProviderSearch` counts, and that is why the two agree — a cache hit is
+free in both dimensions, a failure is free, and an **empty success costs quota and
+throughput alike**. That is also why the limiter cannot be provoked cheaply, which is
+the substance of D21.
+
 **Measured 2026-10-03 — do not derive the ledger from the account endpoint.**
 Reading `this_month_usage` around individual calls is not reliable. In a controlled
 sequence: a fresh search moved it `6→7`; an **identical repeat (cache hit) moved it
@@ -799,6 +826,14 @@ Public exposure goes through the existing sanitiser
 (`to_public_offer`, which masks owner airline and strips sensitive conditions) —
 the adapter must not build its own public shape.
 
+**Conformance.** This adapter passes the provider conformance suite
+(`sdk/python/tests/provider_conformance.py`, run from `tests/test_serpapi_adapter.py`),
+whose six criteria — status ceiling, provenance present, freshness never fabricated,
+`no_results` ≠ `timeout`, completeness against the declared coverage, public shape
+sanitised — are stated from this design rather than from the adapter. The suite is
+**adapter-scoped**, and the first-party lanes are exempt by design; the decision and its
+reasoning are rule 6 of §3.
+
 ---
 
 ## 14. Credentials and hygiene
@@ -895,6 +930,7 @@ local provenance   what we keep — the minimum normalised query required for
 | D18 | The key's environment name is the vendor's documented **`SERPAPI_KEY`**, not a private invention; the local provenance keeps a minimised query, never the raw URL (§14) | DECIDED |
 | D19 | **Verification is a fresh re-search plus identity match, not `selected_flights_json`** — the pin returns the itinerary without a price (§8.1, measured), and its `booking_token` route leads to OTA referral prices, which D5 excludes | DECIDED (on measurement) |
 | D20 | The budget ledger is **derived client-side**; the account endpoint is a reconciliation signal only, because its counters lag and settle backwards on cache hits (§10, measured) | DECIDED (on measurement) |
+| D21 | **Provoke the limiter to measure the two 429 bodies and `Retry-After`** — the last unrun probe (P0.5), whose cost was `UNKNOWN` until measured | **DECLINED 2026-10-03 (owner, adopting the engineering recommendation): the measurement is not worth its price.** Measured first, for free: the hourly ceiling counts *performed searches*, not requests — three cached replays and an invalid request left `this_month_usage` and `this_hour_searches` untouched — so tripping it costs about **200 billable searches, 20% of the plan, every time**. What is left unmeasured is the exact wording of two refusal bodies and whether a `Retry-After` header is sent. The classifier is fail-safe by construction, so an unrecognised 429 becomes `rate_limit_unknown` with **bounded** backoff and a retained body: a misclassified quota exhaustion costs a few requests and surfaces as a failure rather than looping. Capture is therefore **opportunistic** — the first real 429 during development lands its body in that retained field and becomes the fixture. `retry_after_present` stays `null` in the capability profile, and its citation says why |
 
 ---
 
@@ -1024,12 +1060,12 @@ turned out to be a kgmid, and an area with no matching service answers `200` wit
 `error` string and no container at all. Those three refusals are recorded as traps
 (§12.2) because each would otherwise be rediscovered as a "bug" in our own parser.
 
-**Still open:** the 429 bodies and `Retry-After` (P0.5) alone. It needs a request
-deliberately refused by the provider's limiter, which is why it waits on an explicit
-owner go-ahead and has its own second opt-in in the probe
-(`LETSFG_SERPAPI_PROBE_LIMITER=1`). Every other **[UNVERIFIED]** marker in this
-document is resolved — including the empty-result billing question, which the
-committed probe settled by measurement.
+**Still open:** nothing. P0.5 — the 429 bodies and `Retry-After` — was **declined on
+cost** rather than left pending (§16 **D21**): the measurement costs about 200 billable
+searches, the classifier is fail-safe without it, and the first real 429 captured in
+development becomes the fixture. Every **[UNVERIFIED]** marker in this document is now
+resolved, and `retry_after_present` is the one capability-profile field that is
+deliberately `null` with its reason recorded.
 
 Every `null` above is a contract still blocked, and a `true`/`false` must cite the
 fixture that showed it. Cost: single-digit searches, plus whatever the

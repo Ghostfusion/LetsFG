@@ -42,7 +42,7 @@ price context got its own type instead of being called a baseline.
 Design §17. The adapter's freshness, verification and completeness rules cannot be
 finished without this, so it is a **gate**, not an optimisation.
 
-**Status 2026-10-03: one probe left.** A valid SerpApi key was found on this
+**Status 2026-10-03: closed.** A valid SerpApi key was found on this
 machine (filed under a Serper-shaped name — see design §14), and the decisive
 experiments ran for 7 searches on the Free plan (account usage 1 → 8): cache behaviour
 (P0.2), `search_metadata` (P0.4), pin semantics (P0.3), price-context shape (P0.6),
@@ -51,10 +51,9 @@ coverage delta and the duration re-check (P0.8), and a controlled billing sequen
 **P0.1 and P0.7 landed 2026-10-03 on the Starter plan:** the live probe
 (`sdk/python/tests/test_serpapi_live.py`), its fixtures and the capability profile are
 committed, and the empty-result billing question is answered by measurement (yes —
-usage +2 for two empty successes, design §4.3). **Only P0.5 remains** — the 429 bodies
-and `Retry-After` — and it needs a deliberately refused request, so it is gated on an
-explicit owner acceptance of the quota risk and carries its own second opt-in
-(`LETSFG_SERPAPI_PROBE_LIMITER=1`).
+usage +2 for two empty successes, design §4.3). **P0.5 is closed by decision, not by
+measurement** (design **D21**): tripping the limiter costs about 200 billable searches,
+measured for free to be the case, and the classifier is fail-safe without it.
 
 ### P0.1 A `live`-marked probe script and its capability profile `PROBE` `OWNER`
 
@@ -336,20 +335,17 @@ sanitised.
 **Acceptance:** green on the existing lanes **before** the adapter is registered, so
 the suite cannot be written to fit the newcomer.
 
-**Blocked 2026-10-03 on a decision, not on effort.** The acceptance clause presupposes
-that the two existing lanes expose a provider-contract surface for a suite to run
-against, and they do not: the PFS lane (`local.py`) and the Developer API lane
-(`client.py`) are first-party HTTP clients whose offers are the *dataclass* models in
-`letsfg/models/__init__.py`, with no provenance, no `coverage_mode`, no `price_status`
-and no verification outcome — the provider contract exists only in
-`letsfg/connectors/provider_contract.py`, which the adapter implements. So the choice is
-either to declare the suite **adapter-scoped** with the first-party lanes exempt by
-design (a documentation and design change), or to give those lanes provider-contract
-surfaces, which is real new scope for both of them. Its observable criteria that *do*
-apply to this adapter are already guarded: status ceiling, provenance on every
-observation, freshness never fabricated, `no_results` ≠ `timeout`, completeness against
-the declared coverage, and the public shape going through `to_public_offer`
-(`tests/test_serpapi_adapter.py`).
+**Decided and landed 2026-10-03: adapter-scoped.** The clause above is unsatisfiable as
+written and was replaced by decision rather than by silence: neither first-party lane
+exposes a provider contract to run a suite against (the PFS and Developer API clients
+work in the dataclass models with no provenance, `coverage_mode`, `price_status` or
+verification outcome), so giving them one would mean inventing semantics they do not
+have. The design's §3 boundary now states the exemption as rule 6, and the suite is
+`sdk/python/tests/provider_conformance.py` — six criteria stated from the design
+(status ceiling, provenance present, freshness never fabricated, `no_results` ≠
+`timeout`, completeness against the declared coverage, public shape sanitised) checked
+over *values* any adapter's outputs can be fed into, so it cannot be written to fit this
+adapter's internals. It runs green from `tests/test_serpapi_adapter.py`.
 
 ---
 
@@ -404,9 +400,9 @@ nothing was going to read them.
 | # | Decision | Blocks | Design ref |
 |---|---|---|---|
 | O1 | **Is SerpApi a provider lane we own?** — **ANSWERED 2026-10-03: YES**, on re-decision. The lane was declined in the morning and re-activated when the owner purchased a plan; all of P1–P2 is unblocked with it | All of P1–P2 — **open** | §16 D1 |
-| O2 | **Provide a key for the probe** — **ANSWERED: provided.** Measured against `GET /account`: Starter (`starter_v4`), 1000 searches/month, 0 used, 200/hour. **Action still owed:** it sits under `SERPER_API_KEY` in this machine's `.env`, a name the adapter must refuse by D18 — file it as `SERPAPI_KEY` | P0.5 / P0.7 | §17, design §14 |
+| O2 | **Provide a key for the probe** — **ANSWERED: provided, and filed correctly.** Measured against `GET /account`: Starter (`starter_v4`), 1000 searches/month, 200/hour. The key now exists as `SERPAPI_KEY` in this machine's `.env` (added alongside the misfiled `SERPER_API_KEY`, which is the owner's to delete); the live probe and the adapter's live run both resolved it | ~~P0.5 / P0.7~~ — closed | §17, design §14 |
 | O3 | **Which plan tier** — **ANSWERED: Starter**, purchased 2026-10-03. D12 is closed by purchase rather than by argument | — | §16 D12 |
-| O4 | **Legal Shield** — **live again as an optional procurement.** The indemnity hedges *this* lane's scraping exposure, and the lane is active. P1/P2 do not wait on it; the exposure exists regardless of whether it is bought | Procurement decision | §4.3 |
+| O4 | **Legal Shield** — the indemnity hedges *this* lane's scraping exposure | **ANSWERED 2026-10-03: not purchased.** The exposure is SerpApi's to carry contractually (we are a client of their API, not a scraper), it costs a 6× tier jump ($25 → $150/mo) for a lane with no production consumer yet, and it is reversible when one exists. Design §4.3 records the reasoning | — | §4.3 |
 | O5 | **Fate of the dead sweep script and its four JSON artifacts** — **settled 2026-10-03: deleted, and staying deleted.** Nothing referenced them, neither could run, and the re-activated lane writes a *new* live test (P0.1) rather than reviving the connector-era sweep | ~~D-1~~ — closed | §6 above |
 
 ---
@@ -444,9 +440,9 @@ nothing was going to read them.
 | Item | Status | Evidence |
 |---|---|---|
 | Design + implementation documents (incl. review #1 revision) | **Done** | This document and its companion, in the MkDocs nav; `node --test test/docs-claims.test.mjs` and `python -m mkdocs build` green. **Re-activated 2026-10-03** on D1 = yes: the status headers, gates and this log were restored rather than rewritten, and the decline record is kept |
-| P0 probe | **Partly done; two probes owed.** P0.2, P0.3, P0.4, P0.6, P0.8 and a partial P0.7 were measured (7 searches, Free plan, usage 1 → 8). **P0.5 and the empty-search half of P0.7 are open again** with the adoption, now on the Starter plan | Design §17; fixtures are committed with P0.1 |
-| P1.1–P1.8 contract freeze + guards | **Open** — authorized by D1, no longer withdrawn | — |
-| P2.1–P2.5 adapter | **Open** — authorized by D1 | O1 answered **yes** |
+| P0 probe | **Closed 2026-10-03.** P0.2, P0.3, P0.4, P0.6, P0.7 and P0.8 measured on the Free plan, re-measured and committed as fixtures by P0.1 on the Starter plan, plus four additional shapes (autocomplete, deals, and the two explore refusals). **P0.5 is closed by decision** — declined on cost, design **D21** | Design §17; `sdk/python/tests/fixtures/serpapi/` |
+| P1.1–P1.8 contract freeze + guards | **Landed 2026-10-03** | `connectors/provider_contract.py` + `tests/test_provider_contract.py`; the rest guarded in `tests/test_serpapi_adapter.py` and `test/docs-claims.test.mjs` |
+| P2.1–P2.5 adapter | **Landed 2026-10-03**, with P2.5 **adapter-scoped** by decision | `connectors/serpapi_google.py`, `connectors/provider_registry.py`, `tests/provider_conformance.py`; verified live as well as against fixtures |
 | P3 scanner wiring | **Out of scope** | Other repository |
 | D-1, D-2 sweep leftovers | **Fixed 2026-10-03 — deleted, and not revived** | The script, four artifacts and the sibling `_jetstar_checkout_validate.py` were removed; the re-activated lane writes a new live test instead |
 

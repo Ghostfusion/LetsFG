@@ -632,7 +632,10 @@ def test_write_capability_profile() -> None:
         "cache_hit_same_search_id": "cache_cached_2.json vs cache_cached_1.json id and created_at",
         "provider_timestamp": "cache_cached_1.json search_metadata.created_at/processed_at",
         "retry_after_present": (
-            "limiter_429.json headers" if limiter else "not probed — needs the limiter opt-in (P0.5)"
+            "limiter_429.json headers" if limiter else
+            "deliberately not probed: tripping the hourly limiter costs about 200 "
+            "billable searches, so the measurement is declined on cost and captured "
+            "opportunistically instead (design D21)"
         ),
         "selected_flights_same_itinerary": "pin_selected_flights.json vs pin_source_search.json",
         "selected_flights_returns_price": "pin_selected_flights.json selected_flights[0].price",

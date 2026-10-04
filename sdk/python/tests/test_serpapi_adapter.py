@@ -533,6 +533,51 @@ def test_mapped_offers_are_sanitised_by_the_existing_public_shape() -> None:
     )
 
 
+# ── P2.5 — the provider conformance suite ─────────────────────────────────
+
+def test_the_adapter_passes_the_provider_conformance_suite() -> None:
+    """The suite is adapter-scoped, and its criteria come from the design, not from here.
+
+    Scope decision recorded in ``docs/serpapi-provider-implementation.md`` P2.5 and in
+    the design's §3 boundary: the two first-party lanes expose no provider contract, so
+    the suite is written against *values* any adapter's outputs can be fed into.
+    """
+    from letsfg.models.flights import to_public_offer
+
+    from tests.provider_conformance import CRITERIA, run_conformance
+
+    provider, _ = provider_with(
+        reply(load("coverage_standard.json")),
+        reply(load("empty_search.json")),
+        reply({}, status=503),
+    )
+    fresh = provider.search(one_way())
+    empty = provider.search(one_way())
+
+    failures: list[Exception] = []
+    try:
+        provider.search(one_way())
+    except ProviderFailure as failure:
+        failures.append(failure)
+
+    report = run_conformance(
+        observations=[fresh.observation, empty.observation],
+        price_contexts=[fresh.price_context],
+        provider=provider,
+        offer=fresh.offers[0],
+        public_offer=to_public_offer(fresh.offers[0]),
+        failures=failures,
+    )
+
+    assert report == {name: [] for name in CRITERIA}, report
+    assert set(report) == set(CRITERIA)
+    assert len(failures) == 1 and failures[0].category == "transient"
+    assert empty.observation.result_state == "confirmed_empty", (
+        "the empty success must arrive as an observation while the failure does not — "
+        "that is criterion 4 checked from both sides"
+    )
+
+
 # ── P2.3 — the ledger ──────────────────────────────────────────────────────
 
 def test_the_ledger_separates_requests_searches_and_billable_searches() -> None:
