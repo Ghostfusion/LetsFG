@@ -57,6 +57,13 @@ a heading carries:
 
 ### Fixed
 
+- Python + JS: `MISSING_PARAMETER` — documented as "Required field missing" — was
+  assigned to nothing. Python raised a bare `ValueError` when `search_id` was
+  missing, outside the taxonomy its own documentation promises, so a caller
+  catching `LetsFGError` never saw the refusal at all; the JS `searchId` checks
+  and the `bookHotel` `expectedCost` check threw with no code. All four now carry
+  `MISSING_PARAMETER`/`validation`. **The Python refusal's type changes from
+  `ValueError` to `ValidationError` — catch `LetsFGError` for it.** (82b889c)
 - Python + JS: three error paths still dropped the documented `error_code` —
   Python's free-lane `BearerTokenError` had no such field at all, and both
   `register` implementations raised without inferring one. `BearerTokenError`
@@ -118,6 +125,11 @@ a heading carries:
 
 ### Upgrade notes
 
+- **Catch `LetsFGError`, not `ValueError`, for a missing `search_id`.** Python's
+  `book()` raised a bare `ValueError` when `search_id` was omitted; it now raises
+  `ValidationError` (a `LetsFGError`) carrying `MISSING_PARAMETER`, so the
+  documented base class finally catches the most common misuse of the booking
+  call. `except ValueError` no longer matches it. (82b889c)
 - Nothing in this section has been published yet. The newest release is
   `letsfg` 2026.5.103 (ec95f0e).
 
