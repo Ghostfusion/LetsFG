@@ -56,9 +56,9 @@ a heading carries:
   disagree. There is now one resolver per language and an atomic write that is
   owner-only from creation. (0bc9144, 6ead61d)
 - CI: the deterministic Python job could not collect — 17 modules were stale
-  against the local connectors removed in `f91be5b`. They are parked behind a
-  recorded, size-pinned list rather than deleted, so the suite runs while the
-  repair backlog stays visible. (216c82e)
+  against the local connectors removed in `f91be5b`. They were parked behind a
+  recorded, size-pinned list so the suite ran while the repair backlog stayed
+  visible, and are now deleted (see Removed). (216c82e, 3d1f214)
 
 ### Removed
 
@@ -66,6 +66,12 @@ a heading carries:
   shadowed `letsfg/models.py`, the `system_info.py` stub for a removed
   architecture, and the connector-era checkout sweep with its four JSON
   artifacts. (6ead61d, ca11fc2, 74a7a33)
+- The 18 parked Python test modules and the `sdk/python/conftest.py` quarantine
+  block that hid them. Every one tested an implementation removed in `f91be5b` —
+  the local connectors, the source-region and airline-route tables,
+  `connectors/currency.py` and the `starlinkflights` source — or a helper deleted
+  with them, so none could be rewritten against the current API. The parked set
+  stays pinned in `test/docs-claims.test.mjs`, now at 0. (3d1f214)
 
 ### Upgrade notes
 
