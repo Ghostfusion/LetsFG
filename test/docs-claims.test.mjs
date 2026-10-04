@@ -52,6 +52,68 @@ test('the Python package version matches its runtime __version__', () => {
   assert.equal(runtime, declared, 'pyproject.toml version and letsfg.__version__ must agree');
 });
 
+// ── Changelog ↔ versions ──────────────────────────────────────────────────
+// The changelog is where a user learns what changed and how to verify it, so it
+// has to agree with what is actually published. Three packages version
+// independently here, so the newest released section must carry the Python
+// version from pyproject.toml *and* name the npm versions currently in the
+// manifests. The `[Unreleased]` section is what keeps the check possible before
+// the next release, and is the one deliberate divergence from the reference
+// format.
+
+function releasedSections(changelog) {
+  const headings = [...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/gm)];
+  return headings.map((m, i) => ({
+    version: m[1],
+    date: m[2],
+    body: changelog.slice(m.index, i + 1 < headings.length ? headings[i + 1].index : changelog.length),
+  }));
+}
+
+test('CHANGELOG.md keeps an Unreleased section and agrees with the manifests', () => {
+  const changelog = read('CHANGELOG.md');
+  assert.match(changelog, /^## \[Unreleased\]/m, 'CHANGELOG.md must keep an [Unreleased] section');
+
+  const pythonVersion = /^version\s*=\s*"([^"]+)"/m.exec(read('sdk/python/pyproject.toml'))?.[1];
+  const jsVersion = json('sdk/js/package.json').version;
+  const mcpVersion = json('sdk/mcp/package.json').version;
+  const releases = releasedSections(changelog);
+
+  if (releases.length === 0) {
+    // Nothing released yet: the section is still the anchor, so it must name the
+    // version the manifest is on and cannot drift before the first release.
+    assert.ok(changelog.includes(pythonVersion),
+      `no released section yet, so [Unreleased] must name ${pythonVersion}`);
+    return;
+  }
+
+  const newest = releases[0];
+  assert.equal(newest.version, pythonVersion,
+    `the newest released section is ${newest.version}, but sdk/python/pyproject.toml is ${pythonVersion}`);
+
+  const npmVersion = (name) =>
+    new RegExp('`' + name + '` (\\d+\\.\\d+\\.\\d+) \\(npm').exec(newest.body)?.[1];
+  assert.equal(npmVersion('letsfg'), jsVersion,
+    `the newest released section must name the npm letsfg version in sdk/js/package.json (${jsVersion})`);
+  assert.equal(npmVersion('letsfg-mcp'), mcpVersion,
+    `the newest released section must name the npm letsfg-mcp version in sdk/mcp/package.json (${mcpVersion})`);
+});
+
+test('every changelog bullet ends with provenance', () => {
+  // Provenance is what makes an entry auditable: `git show <sha>` either backs
+  // the claim or it does not. Continuation lines are folded into their bullet so
+  // a wrapped entry cannot hide a missing SHA.
+  const bullets = [];
+  for (const line of read('CHANGELOG.md').split('\n')) {
+    if (/^- /.test(line)) bullets.push(line);
+    else if (/^ {2}\S/.test(line) && bullets.length) bullets[bullets.length - 1] += ' ' + line.trim();
+  }
+  assert.ok(bullets.length >= 10, `expected the changelog's entries, found ${bullets.length} bullets`);
+  const bare = bullets.filter((line) => !/\([^()]*[0-9a-f]{7,40}[^()]*\)\.?\s*$/.test(line));
+  assert.deepEqual(bare, [],
+    'changelog bullets must end with provenance — a commit SHA in trailing parentheses');
+});
+
 // ── MCP tool surface ──────────────────────────────────────────────────────
 // `tools/list` is the contract an agent codes against. Every tool the server
 // advertises must be documented in the package README, or an agent cannot know
@@ -129,7 +191,7 @@ test('openapi.yaml server + paths compose to the documented base URL', () => {
 
 const LINK_ROOTS = [
   'README.md', 'AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'SECURITY.md',
-  'OMARCHY-PLUGIN.md', 'SKILL.md',
+  'OMARCHY-PLUGIN.md', 'SKILL.md', 'CHANGELOG.md', 'ROADMAP.md',
 ];
 
 function markdownFiles() {

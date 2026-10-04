@@ -64,6 +64,8 @@ nav:
     - Fare Scanner — Design: first-class-fare-scanner-design.md
     - SerpApi Provider — Design: serpapi-provider-design.md
     - SerpApi Provider — Implementation: serpapi-provider-implementation.md
+    - Design Records:
+      - MCP Protocol Version: design/mcp-protocol-version.md
     - fli Study — Design: fli-study-design.md
     - fli Study — Implementation: fli-study-implementation.md
 
