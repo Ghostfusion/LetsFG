@@ -21,6 +21,7 @@ import os
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
+from letsfg.client import ErrorCode, LetsFGError
 from letsfg.connectors.auth import ensure_bearer_token, BearerTokenError
 
 _BASE_URL = os.environ.get("LETSFG_BASE_URL", "https://letsfg.co")
@@ -123,6 +124,12 @@ async def search_local(
 
     Requires a Bearer token — run `letsfg auth` once; it refreshes itself after that.
     Returns { offers: [...], total_results: N, search_id: "..." }.
+
+    Raises LetsFGError(status_code=504, error_code=SUPPLIER_TIMEOUT) when the
+    search does not reach a terminal status within `_MAX_POLLS` polls. An
+    exhausted poll is a timeout, not an empty result: the caller cannot tell
+    "nothing exists" from "we never found out", so no empty offer list is
+    returned for it.
     """
     # ensure_, not get_: the access token lasts an hour and the refresh token
     # is stored right next to it. get_bearer_token() is synchronous and cannot
@@ -199,7 +206,22 @@ async def search_local(
 
     if terminal is None:
         print()
-        return {"offers": [], "total_results": 0, "search_id": search_id}
+        # A search that never reached a terminal status is NOT an empty result
+        # set. This returned {"offers": [], "total_results": 0} for years, which
+        # made a ~3-minute timeout indistinguishable from "the engine answered
+        # and there is genuinely nothing": `letsfg search` printed "No flights
+        # found for GDN → BCN on 2026-06-15" -- a claim about the market the
+        # server never made. Canonical rule: `trvl-study-design.md` §2.1, an
+        # empty result may only be reported as no-results when coverage is
+        # complete. The JS SDK already throws here (sdk/js/src/index.ts,
+        # searchPFS), and the taxonomy already has a code for it.
+        raise LetsFGError(
+            f"Search timed out after {_MAX_POLLS * _POLL_INTERVAL}s without a "
+            f"terminal status (search_id {search_id}). Poll "
+            f"/api/results/{search_id} directly, or search again.",
+            504,
+            error_code=ErrorCode.SUPPLIER_TIMEOUT,
+        )
 
     # Terminal, but the offer set may still be growing.
     waited = 0
