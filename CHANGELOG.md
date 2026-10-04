@@ -57,6 +57,17 @@ a heading carries:
 
 ### Fixed
 
+- Python: `AuthenticationError` left `error_code` empty on the paths that never
+  saw an HTTP response — `_require_api_key`, the first one an agent hits — so a
+  caller branching on the documented field read `""`. It now defaults to
+  `AUTH_INVALID`, as the JS SDK's already did, and still keeps the server's own
+  code when one was returned. (174da9d)
+- JS: the PFS poll timeout was thrown with no `errorCode`, so it was classified
+  `business` with `isRetryable: false` — a caller that trusts the flag would
+  refuse to retry a timeout — and its message told the reader to poll
+  `/api/results/<id>`, a literal placeholder that never named the search. It now
+  carries `errorCode: SUPPLIER_TIMEOUT` (transient, retryable) and the real
+  `search_id`, matching the Python SDK. (2b7ab79)
 - Python: `search_local` returned `{"offers": [], "total_results": 0}` when the
   search never reached a terminal status, so a ~3-minute timeout was
   indistinguishable from a genuine "nothing flies this route". `letsfg search`
