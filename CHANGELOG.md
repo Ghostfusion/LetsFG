@@ -28,7 +28,8 @@ a heading carries:
 - MCP: every tool result carries a typed envelope (`status`, `completeness`,
   `retry_after_ms`, `fix_hint_code`) plus an `outputSchema` and
   `structuredContent`, and a valid empty result is never reported as a timeout.
-  (2ca9223, 5d2eeda)
+  Result blocks are annotated `audience: ["assistant"]`, so a client does not
+  render the JSON payload to the traveller. (2ca9223, 5d2eeda, 733c1dd)
 - A provider contract and a SerpApi Google Flights adapter behind it, with a
   credential-gated registry, a client-side budget ledger and a six-criteria
   conformance suite. Nothing user-facing is wired to it yet: no new MCP tool and
@@ -44,6 +45,11 @@ a heading carries:
 
 ### Changed
 
+- MCP: the reference material moved out of `tools/list` into the `letsfg://guide`
+  resource — the Starlink and split-ticket rules, the booking state machines,
+  hotel pricing, the hotel result fields and the paused-booking shapes — while
+  the facts that change what an agent does stay inline in the description that
+  owns them. The 14 descriptions went from 9,115 to 6,183 bytes. (733c1dd)
 - MCP keeps answering `protocolVersion: 2024-11-05`. The decision and its
   reversal trigger are recorded in
   [docs/design/mcp-protocol-version.md](docs/design/mcp-protocol-version.md), and
