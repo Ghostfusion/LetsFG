@@ -386,12 +386,16 @@ populate it from the already-documented findings in
 `models/`), and the Playwright installs in `Dockerfile`, `Dockerfile.python`,
 `docker-compose.yml` for removed local connectors.
 
-**Prerequisite before choosing the checker.** Determine whether
-`affromero/repo-maintenance`'s `scripts/audit.py` covers **Python**; the action
-as read performs `knip` (JS/TS) and `cargo-machete` (Rust) and its Python
-coverage is unverified. If it does not, use a repo-local script over
-`vulture`/`pyflakes` + `knip` and reuse the ledger format. Either way the ledger
-is ours and the entries must fail the build once they go stale.
+**Prerequisite — resolved 2026-10-04 (design Q1).** `affromero/repo-maintenance`'s
+`scripts/audit.py` **does** cover Python: it runs `vulture` (exact pin, via
+`uvx`) at `--min-confidence 80` over every tracked `*.py`, resolving each hit to
+its deepest enclosing scope with `ast`, and it needs an installed `knip` plus a
+tracked `knip.json` for the JS/TS half. Both halves engage for us. So the
+prerequisite no longer decides *format* — it decides **whether to take on the
+toolchain**, which is the owner's call (rule 4). If the toolchain is declined,
+copy the ledger *format* (exact identity + review reason + stale-rejection) into
+a repo-local script over `vulture` + `knip`; that format is the valuable part.
+Either way the ledger is ours, and entries must fail the build once they go stale.
 
 **Acceptance.** The check runs on PR + weekly, rejects new findings and stale
 exceptions, and every current entry has a reason a reviewer can accept.
@@ -473,7 +477,7 @@ publishing is manual: a build identity that is always `dev` adds noise.
 | Committed screenshot archive under `docs/` | P19 / D17 | Zero inbound references in the probe; undiscoverable. Visual evidence belongs in the PR body (P2.1). |
 | `Makefile` | P18 / D18 | Ergonomics only; rule 4 excludes it. |
 | 1000-line / 10-files-per-dir gate | P15 / D16 | Needs refactors; owner decision recorded in P2.4. |
-| Depending on the third-party maintenance action | P1 / D19 | Pin-by-SHA if adopted; verify Python coverage first (P2.3 prerequisite). |
+| Depending on the third-party maintenance action | P1 / D19 | Pin-by-SHA if adopted; Python coverage **verified** 2026-10-04 (design Q1) — the remaining gate is the owner's, not the evidence's. |
 | Their monorepo scale (Postgres/Redis/Tauri, 232 test files) | §2.6 | Different product shape; nothing to copy. |
 
 ## Integration acceptance bar
@@ -643,7 +647,8 @@ first, then the opt-in workflow.
 
 9. **D4** — the placeholder-hygiene sweep first, then secret scanning.
 10. **P2.2** — Dependabot for npm and pip.
-11. **P2.3** — the dead-code ledger *policy* (D1); the tool stays deferred (D19).
+11. **P2.3** — the dead-code ledger *policy* (D1); the tool is adoptable once the
+    owner accepts the toolchain (D19, design Q1).
 
 **Tier 4 — optional**
 

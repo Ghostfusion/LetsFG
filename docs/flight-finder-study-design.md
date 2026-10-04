@@ -140,11 +140,11 @@ gate that only rejects *new* findings is adoptable, and an exceptions file that
 must carry a reason converts silent debt into reviewed debt — and rejects the
 exception once it goes stale.
 
-**Verdict.** `[ADOPT]` the **policy**; `[DEFER]` the **implementation** (D19).
-Those are separable, and this study should not need a third-party action to
-decide that reviewed debt beats silent debt. Adopt the ledger now; adopt the
-action only once Python coverage in `scripts/audit.py` is verified, along with
-its maintenance model and false-positive behaviour.
+**Verdict.** `[ADOPT]` the **policy**; the **implementation** (D19) is now
+**adoptable, owner-gated** — its Python coverage is verified (§4 Q1). Those were
+always separable, and this study should not need a third-party action to decide
+that reviewed debt beats silent debt. The objection that remains is not coverage:
+see Q1 for what adoption actually costs.
 
 **The list this pattern was written from has since been cleaned — which is the
 interesting part.** Measured 2026-10-03: `system_info.py`, the `models.py` that
@@ -1023,13 +1023,13 @@ happened to surface, and they stand on their own defects.
 | D16 | 1000-line file cap + ≤10 files/dir pre-commit hooks | Repository architecture | `[DEFER]` | Would require refactors forbidden by rule 4; owner decision. The grandfathering design is what makes the policy incrementally adoptable. |
 | D17 | Committed screenshot archive under `docs/` | Docs pattern | `[REJECT]` | Zero inbound references; undiscoverable. Keep visual evidence in PR bodies. |
 | D18 | Makefile | Ergonomics | `[DEFER]` | Ergonomics only; rule 4 excludes it. |
-| D19 | **Depend on** the third-party maintenance action | Repository hygiene | `[BLOCKED — inspect first]` | Blocked pending **direct inspection of `scripts/audit.py`**: no reliable public copy was found, and the peer being a Node/TypeScript app says nothing about what the scanner audits. **Do not infer Python coverage from the action's name.** D1's policy is unaffected — that separation is the point. |
+| D19 | **Depend on** the third-party maintenance action | Repository hygiene | `[ADOPTABLE — owner-gated]` | Coverage **verified 2026-10-04** (§4 Q1): `scripts/audit.py` does cover Python, via `vulture --min-confidence 80`. Adoptable; the remaining gate is a CI/toolchain decision (rule 4), costing a `uv` toolchain, an installed `knip`, and a tracked `knip.json` per JS/TS package. D1's policy was never gated on it — that separation was the point. |
 
 ## 4. Open questions
 
-Six were open when this study was written. **Four were answered on 2026-10-04**;
+Six were open when this study was written. **Five were answered on 2026-10-04**;
 the answers are recorded rather than deleted, because the reasoning is what the
-implementation document executes. Two remain genuinely open.
+implementation document executes. One remains genuinely open.
 
 ### Answered 2026-10-04
 
@@ -1151,16 +1151,53 @@ and **`unsupported` and `partial`-as-a-status are the genuine additions**. The
 rule stands: extend the one vocabulary, with a test, rather than starting a
 second one.
 
-### Still open
+**Q1 — does `repo-maintenance`'s `scripts/audit.py` cover Python?** **Yes.**
+Answered 2026-10-04 by **direct inspection** of the script. The earlier
+"unresolved" rested on there being no reliable public copy; the file is in fact
+reachable, and reading it settles what the action's **name** could not.
 
-**Q1 — does `repo-maintenance`'s `scripts/audit.py` cover Python, or only JS/TS
-and Rust?** **Unresolved.** No reliable public copy of the scanner was found, and
-the peer repository being a Node/TypeScript application does not establish what
-the separate maintenance action audits. So: **do not infer Python coverage from
-the action's name.** D19 stays deferred until the script is inspected directly;
-**D1 is unaffected**, which is the point of separating the policy from its tool.
-If `audit.py` handles Python with meaningful rules, D19 becomes adoptable; if it
-only covers JS/TS + Rust, its ideas can still be reused without adopting it.
+What `audit.py` actually does, per scanner:
+
+| Language | Trigger | Scanner | Findings |
+|---|---|---|---|
+| **Python** | any tracked `*.py` | `vulture`, via `uvx --from vulture==<exact pin>` at `--min-confidence 80` | one per vulture line, re-parsed with `ast` to resolve the **deepest enclosing scope** → `vulture · all · <file> · unused · "<scope>: <description>"` |
+| **JS/TS** | a tracked `package.json` | `knip`, in two modes (`all`, and `production --include files`) | one per issue entry, keyed by the issue's own kind |
+
+Facts that decide adoption, all read from the source:
+
+- **It is stdlib-only Python orchestration.** No third-party imports; it shells
+  out to the scanners and reconciles their output.
+- **Rust is not in `audit.py` at all.** The question said "JS/TS and Rust"; the
+  Rust scan belongs to `action.yml` (`cargo machete`), not to this script. The
+  script's own scope is **two languages**, and the action adds a third around it.
+- **Detection is conditional on tracked files.** `git ls-files -z` enumerates; no
+  tracked `*.py` → vulture never runs; no `package.json` → knip never runs. For us
+  **both** fire (`sdk/python`, plus `sdk/js` and `sdk/mcp`).
+- **The ledger shape is exactly the one P2.3 wants.** `.maintenance-exceptions.json`
+  is version 1; every finding carries the exact identity `(tool, mode, file, kind,
+  name)` **and a non-empty review reason**; duplicates are rejected. A finding
+  that disappears becomes a **stale exception** and fails the build just like a
+  new finding.
+- **Scanner failure is a hard failure, not a pass.** A missing `knip.json`, an
+  absent `node_modules/.bin/knip`, a non-exact `vulture==` pin, invalid scanner
+  JSON, or a report whose exit status disagrees with its findings all raise — and
+  `main()` exits **2**, rather than reporting "clean".
+- **Cost of adoption for us.** A `uv`/`uvx` toolchain, an installed `knip`, and a
+  **tracked `knip.json`** per JS/TS package or it hard-fails; the action also
+  installs Node 22 and runs `npm ci`.
+- **One robustness wart worth knowing.** `vulture_findings` re-parses each file
+  with `ast.parse()`; an unparseable Python file raises `SyntaxError`, which
+  `main()` does **not** catch (`except (ScanError, OSError, ValueError)`) — so it
+  dies with a traceback instead of the clean exit-2 path. Reachable only on a file
+  vulture already flagged, and only while that file is syntactically broken.
+
+**Consequence.** The evidence gate on D19 is cleared: **D19 is adoptable**, and
+what remains is a CI/toolchain decision (rule 4), not a coverage question.
+**D1 was never gated on it** — the policy separation held. If the owner declines
+the toolchain, the *ledger format* above is worth copying into a repo-local script
+over `vulture` + `knip`: the format is the valuable part, not the composite action.
+
+### Still open
 
 **Q3 — the limiter's scope and failure direction.** **Needs the probe**
 (`trvl-study-design.md` §6 Q8). Nothing here can be settled by reading a
@@ -1169,14 +1206,16 @@ undocumented until measured, and no scheduler logic may assume an answer.
 
 ### What is still a gate
 
-Q1 (tooling) and Q3 (external behaviour) remain gates. The other four are
-decided, so the dependency graph is now short:
+Only **Q3** (external behaviour) remains a gate. The other five are decided, so
+the dependency graph is down to a single edge:
 
 ```
-Q1 ──→ D19            (deferred either way; D1 unaffected)
 Q3 ──→ D10            (probe: scope/key · operation · counting event ·
                        limit/window · failure direction · retry/reset)
 ```
+
+D1/D19 are **not** gated: D19's evidence gate is cleared (Q1), leaving only an
+owner decision about the toolchain.
 
 and the ordered, ungated work is: **D8** (per Q2) → **D9 + Q6's vocabulary** →
 **P11** (per Q5) → **D11** → **D7**, with the live canary (per Q4) alongside.
@@ -1209,7 +1248,8 @@ D5, D6, D1 (ledger policy).
 
 **Tier 4 — optional ergonomics:** D15 (already satisfied in substance), D18.
 
-**Rejected or deferred:** D17, D16, D19 until its Python coverage is verified.
+**Rejected or deferred:** D17, D16. **D19** is adoptable (Q1) and waits only on
+the owner's toolchain decision.
 
 This ordering is what the companion implementation document follows; it is also
 what the acceptance bar there is written against.
