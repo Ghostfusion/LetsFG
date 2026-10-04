@@ -594,7 +594,7 @@ archive. Those are repository work (design §0.1) with their own acceptance.
 |---|---|---|
 | P1 dead-code ledger | D1/D19 | P2.3 |
 | P2 workflow hardening | D2/D3 | P0.1 |
-| P3 secret scanning | D4 | P2.3 prerequisite discussion; not yet scheduled (needs placeholder hygiene in `AGENTS.md`/`docs/**` — see design P3) |
+| P3 secret scanning | D4 | Placeholder hygiene **verified 2026-10-04** (design P3): one credential-shaped example fixed, none left. The scanner itself is not yet scheduled — an owner decision. |
 | P4 Dependabot policy | D5 | P2.2 |
 | P5 PR template | D6 | P2.1 |
 | P6 issue template | D7 | P2.1 |

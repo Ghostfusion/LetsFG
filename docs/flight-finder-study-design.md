@@ -240,6 +240,20 @@ Writing the allowlist first is the failure mode: it teaches the scanner to
 tolerate exactly the material that steps 1–3 exist to remove, and it converts a
 finding into a footnote.
 
+**Step 1 is done (measured 2026-10-04).** `git ls-files` was swept for JWT,
+OpenAI, AWS, Slack, GitHub and Google key shapes, PEM blocks, and every
+`letsfg_`-prefixed string. Findings: **no** JWT-looking token, `AKIA`, `ghp_`,
+`xox*-`, `AIza` or private key anywhere; the only 32+-hex matches are the
+SHA-pinned `uses:` commits and two SHA-256 vectors in `test/model-test.js`. The
+59 `letsfg_`-prefixed strings reduce to 16 distinct forms: 31 instances of the
+canonical `letsfg_your_api_key`, the rest unmistakable (`letsfg_xxxx`,
+`letsfg_test_key`), deliberately secret-shaped because a masking test proves they
+are redacted (`letsfg_supersecret123`, `letsfg_leak123456`), or not credentials at
+all (`letsfg_auth` the subcommand, `letsfg_client`, `letsfg_domain`) — and **one
+outlier**: `docs/api-onboarding.md` showed a registration *response* with
+`"api_key": "letsfg_abc123"`, which reads like a real key. It is now
+`letsfg_your_api_key`. Steps 2–4 are the scanner itself and remain the decision.
+
 ---
 
 ### P4. Dependabot as policy, not just automation `[ADOPT]`

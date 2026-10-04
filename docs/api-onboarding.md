@@ -29,7 +29,7 @@ curl -X POST https://letsfg.co/developers/api/v1/agents/register \
 ```json
 {
   "agent_id": "ag_123",
-  "api_key": "letsfg_abc123",
+  "api_key": "letsfg_your_api_key",
   "payment_ready": false,
   "tier": "developer",
   "message": "Registration successful! Save your api_key ..."
